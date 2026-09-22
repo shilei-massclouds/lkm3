@@ -1,5 +1,5 @@
 [package]
-name = "earlycon_riscv_sbi"
+name = "earlycon"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-2.0-only"
@@ -8,6 +8,3 @@ workspace = "../workspace"
 
 [lib]
 crate-type = ["rlib"]
-
-[dependencies]
-earlycon = { path = "../earlycon" }

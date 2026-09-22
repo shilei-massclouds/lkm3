@@ -3,15 +3,7 @@
 #![no_std]
 
 use core::ffi::{c_char, c_int, c_void};
-
-// Matches struct earlycon_id in include/linux/serial_core.h (Linux 6.12).
-#[repr(C)]
-struct EarlyconId {
-    name: [u8; 15],
-    name_term: u8,
-    compatible: [u8; 128],
-    setup: extern "C" fn(*mut c_void, *const c_char) -> c_int,
-}
+use earlycon::EarlyconId;
 
 const fn sbi_name() -> [u8; 15] {
     let mut name = [0; 15];
@@ -24,14 +16,7 @@ const fn sbi_name() -> [u8; 15] {
 // The linker script keeps this input section in .init.data.
 #[used]
 #[unsafe(link_section = "__earlycon_table")]
-static SBI_EARLYCON_ID: EarlyconId = EarlyconId {
-    name: sbi_name(),
-    name_term: 0,
-    compatible: [0; 128],
-    setup: early_sbi_setup,
-};
-
-const _: () = assert!(core::mem::offset_of!(EarlyconId, setup) == 144);
+static SBI_EARLYCON_ID: EarlyconId = EarlyconId::new(sbi_name(), [0; 128], early_sbi_setup);
 
 extern "C" fn early_sbi_setup(_device: *mut c_void, _options: *const c_char) -> c_int {
     // TODO: Select the DBCN or SBI v0.1 console write callback.

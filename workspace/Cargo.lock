@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "earlycon"
+version = "0.1.0"
+
+[[package]]
 name = "earlycon_riscv_sbi"
 version = "0.1.0"
+dependencies = [
+ "earlycon",
+]
