@@ -15,10 +15,17 @@ pub struct EarlyconId {
 
 impl EarlyconId {
     pub const fn new(
-        name: [u8; 15],
+        name: &str,
         compatible: [u8; 128],
         setup: extern "C" fn(*mut c_void, *const c_char) -> c_int,
     ) -> Self {
+        let bytes = name.as_bytes();
+        assert!(bytes.len() <= 15);
+
+        let mut name = [0; 15];
+        let (prefix, _) = name.split_at_mut(bytes.len());
+        prefix.copy_from_slice(bytes);
+
         Self {
             name,
             name_term: 0,
@@ -29,3 +36,35 @@ impl EarlyconId {
 }
 
 const _: () = assert!(core::mem::offset_of!(EarlyconId, setup) == 144);
+
+/// Declares an early console entry with the same name and setup as EARLYCON_DECLARE.
+#[macro_export]
+macro_rules! earlycon_declare {
+    ($name:ident, $setup:path) => {
+        const _: () = {
+            #[used]
+            #[unsafe(link_section = "__earlycon_table")]
+            static ID: $crate::EarlyconId =
+                $crate::EarlyconId::new(stringify!($name), [0; 128], $setup);
+        };
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    extern "C" fn setup(_device: *mut c_void, _options: *const c_char) -> c_int {
+        0
+    }
+
+    earlycon_declare!(first, setup);
+    earlycon_declare!(second, setup);
+
+    #[test]
+    fn name_is_zero_padded() {
+        let id = EarlyconId::new("sbi", [0; 128], setup);
+        assert_eq!(&id.name[..4], b"sbi\0");
+        assert_eq!(id.name_term, 0);
+    }
+}
