@@ -1,6 +1,7 @@
 MAKEFLAGS += --no-print-directory
 
 CARGO ?= cargo
+CARGO_MANIFEST := workspace/Cargo.toml
 RUST_TARGET ?= riscv64imac-unknown-none-elf
 DEBUG ?= n
 
@@ -13,9 +14,9 @@ test:
 	$(MAKE) clippy
 
 fmt:
-	$(CARGO) fmt --all -- --check
+	$(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
 
 clippy:
-	$(CARGO) clippy --workspace --target $(RUST_TARGET) $(CARGO_PROFILE) -- -D warnings
+	$(CARGO) clippy --manifest-path $(CARGO_MANIFEST) --workspace --target $(RUST_TARGET) $(CARGO_PROFILE) -- -D warnings
 
 .PHONY: test fmt clippy

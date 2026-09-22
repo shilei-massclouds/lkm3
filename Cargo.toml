@@ -1,3 +1,0 @@
-[workspace]
-members = ["earlycon_riscv_sbi"]
-resolver = "2"
