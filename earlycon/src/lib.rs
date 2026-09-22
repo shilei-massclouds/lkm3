@@ -2,6 +2,9 @@
 
 #![no_std]
 
+#[cfg(test)]
+mod tests;
+
 use core::ffi::{c_char, c_int, c_void};
 
 // Matches struct earlycon_id in include/linux/serial_core.h (Linux 6.12).
@@ -49,6 +52,3 @@ macro_rules! earlycon_declare {
         };
     };
 }
-
-#[cfg(test)]
-mod tests;
