@@ -19,4 +19,7 @@ fmt:
 clippy:
 	$(CARGO) clippy --manifest-path $(CARGO_MANIFEST) --workspace --target $(RUST_TARGET) $(CARGO_PROFILE) -- -D warnings
 
-.PHONY: test fmt clippy
+clean:
+	$(CARGO) clean --manifest-path $(CARGO_MANIFEST) --target-dir workspace/target
+
+.PHONY: test fmt clippy clean
