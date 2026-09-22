@@ -2,12 +2,25 @@ MAKEFLAGS += --no-print-directory
 
 CARGO ?= cargo
 CARGO_MANIFEST := workspace/Cargo.toml
+LKM3_OBJ_DIR := workspace/target/lkm3
 RUST_TARGET ?= riscv64imac-unknown-none-elf
 DEBUG ?= n
+
+include workspace/Makefile.util
+
+components := $(call workspace-components)
 
 ifeq ($(DEBUG),n)
 CARGO_PROFILE := --release
 endif
+
+build: $(components)
+
+$(components): FORCE
+	@mkdir -p "$(LKM3_OBJ_DIR)"
+	$(CARGO) rustc --manifest-path $(CARGO_MANIFEST) -p $@ --lib --target $(RUST_TARGET) $(CARGO_PROFILE) -- --emit=obj="$(abspath $(LKM3_OBJ_DIR)/$(call workspace-object,$@))" -C codegen-units=1
+
+FORCE:
 
 test:
 	$(MAKE) fmt
@@ -26,4 +39,4 @@ unittest:
 clean:
 	$(CARGO) clean --manifest-path $(CARGO_MANIFEST) --target-dir workspace/target
 
-.PHONY: test fmt clippy unittest clean
+.PHONY: build FORCE test fmt clippy unittest clean

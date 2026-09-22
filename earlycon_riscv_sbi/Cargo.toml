@@ -6,6 +6,9 @@ license = "GPL-2.0-only"
 publish = false
 workspace = "../workspace"
 
+[package.metadata.lkm3]
+object = "earlycon-riscv-sbi.o"
+
 [lib]
 crate-type = ["rlib"]
 

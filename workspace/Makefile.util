@@ -1,0 +1,4 @@
+CARGO_METADATA = $(CARGO) metadata --manifest-path $(CARGO_MANIFEST) --no-deps --format-version 1
+
+workspace-components = $(or $(shell $(CARGO_METADATA) | jq -r '.workspace_members as $$members | .packages[] | select(.id as $$id | $$members | index($$id)) | select(.metadata.lkm3.object) | .name'),$(error No kernel components found in $(CARGO_MANIFEST)))
+workspace-object = $(or $(shell $(CARGO_METADATA) | jq -r --arg package '$(1)' '.packages[] | select(.name == $$package) | .metadata.lkm3.object // empty'),$(error No kernel object configured for $(1)))
