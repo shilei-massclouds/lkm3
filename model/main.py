@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-from engine import emit, process
+from engine import drive
 
 
 def derive_kernel():
     from kernel import Kernel
     kernel = Kernel()
-    emit(kernel, "boot")
-    process()
+
+    drive(kernel, "boot")
     print("Derive kernel ok!")
 
 

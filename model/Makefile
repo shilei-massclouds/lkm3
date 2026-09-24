@@ -1,6 +1,7 @@
 PYTHON ?= python3
+MAKEFLAGS += --no-print-directory
 
 run:
-	$(PYTHON) main.py
+	@$(PYTHON) main.py
 
 .PHONY: run

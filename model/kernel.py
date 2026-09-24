@@ -1,10 +1,19 @@
-from engine import System, emit
+from dataclasses import dataclass
+from engine import System, Signal, Engine, drive
 
-
+@dataclass
 class Kernel(System):
     def boot(self, sig: Signal):
         print("boot")
-        emit(self, "setup")
+        sig.engine.emit(self, "setup")
 
     def setup(self, sig: Signal):
-        print("setup")
+        print("kernel::setup")
+        earlycon = EarlyCon()
+        drive(earlycon, "setup")
+
+
+@dataclass
+class EarlyCon(System):
+    def setup(self, sig: Signal):
+        print("earlycon::setup")
