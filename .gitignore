@@ -1,1 +1,10 @@
 /workspace/target/
+/workspace/lkm_objs/
+
+# Python caches and local tooling artifacts.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.swp
