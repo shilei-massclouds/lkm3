@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+
 from engine import emit, process
+
 
 def derive_kernel():
     from kernel import Kernel
