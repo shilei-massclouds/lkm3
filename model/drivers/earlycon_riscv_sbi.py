@@ -7,5 +7,7 @@ from engine import Signal, drive
 @dataclass
 class EarlyConRiscvSBI(EarlyConDrv):
     def setup(self, sig: Signal):
-        if sig.args["drv_type"] == "sbi":
-            drive(sig.args["dev"], "setup", drv="sbi")
+        from global_vars import gv
+        global gv
+        if sig.args["drv"] == "sbi":
+            drive(gv.early_console_dev, "setup", drv="sbi")

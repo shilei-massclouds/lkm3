@@ -1,8 +1,7 @@
-from drivers.earlycon import EarlyCon
-from drivers.earlycon_riscv_sbi import EarlyConRiscvSBI
 from engine import drive
+from global_vars import gv
 
 def test_earlycon_riscv_sbi():
-    dev = EarlyCon()
-    drv = EarlyConRiscvSBI()
-    drive(drv, "setup", drv_type="sbi", dev=dev)
+    global gv
+    gv.reset()
+    drive(gv.earlycon_riscv_sbi, "setup", drv="sbi")

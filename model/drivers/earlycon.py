@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from drivers.console import Console
 from engine import Signal, System, drive, drive_all
+from kernel.params import Param
 
 @dataclass
 class EarlyCon(System):
@@ -27,6 +28,14 @@ class EarlyConDrvTable(System):
         self.table.append(drv)
 
     def probe(self, sig: Signal):
-        dev = sig.args.get("dev")
-        drv_type = sig.args.get("drv_type")
-        drive_all(self.table, "setup", drv_type=drv_type, dev=dev)
+        drv = sig.args["drv"]
+        drive_all(self.table, "setup", drv=drv)
+
+
+@dataclass
+class EarlyConParam(Param):
+    def parse(self, sig: Signal):
+        from global_vars import gv
+        global gv
+        drv = sig.args["val"]
+        drive(gv.earlycon_driver_table, "probe", drv=drv)
