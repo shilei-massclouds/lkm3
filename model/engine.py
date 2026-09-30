@@ -25,6 +25,7 @@ class Engine:
     signals: deque[Signal] = field(default_factory=deque)
 
     def emit(self, target: System, action: str, args: dict[str, Any]):
+        print(f"{action} -> {target}")
         self.signals.append(Signal(target, action, args, self))
 
     def process(self):

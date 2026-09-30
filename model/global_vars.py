@@ -5,10 +5,12 @@ from dataclasses import dataclass, field
 from drivers.earlycon import EarlyCon, EarlyConDrvTable, EarlyConParam
 from drivers.earlycon_riscv_sbi import EarlyConRiscvSBI
 from kernel.params import CmdLine, ParamTable
+from systems.kernel import Kernel
 
 
 @dataclass
 class GlobalVars:
+    kernel: Kernel = field(default_factory=Kernel)
     earlycon_param: EarlyConParam = field(default_factory=EarlyConParam)
     earlycon_driver_table: EarlyConDrvTable = field(default_factory=EarlyConDrvTable)
     early_console_dev: EarlyCon = field(default_factory=EarlyCon)

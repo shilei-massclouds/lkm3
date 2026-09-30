@@ -1,19 +1,12 @@
-#!/usr/bin/env python3
+"""Derive Entry"""
 
 from engine import drive
-
-
-def derive_kernel():
-    from kernel import Kernel
-
-    kernel = Kernel()
-
-    drive(kernel, "boot")
-    print("Derive kernel ok!")
+from global_vars import gv
 
 
 def main() -> None:
-    derive_kernel()
+    drive(gv.kernel, "setup")
+    drive(gv.kernel, "boot")
 
 
 if __name__ == "__main__":

@@ -5,7 +5,6 @@ from global_vars import gv
 
 
 def test_parsing_early_params():
-    global gv
     gv.reset()
 
     drive(gv.earlycon_driver_table, "register", drv=gv.earlycon_riscv_sbi)
