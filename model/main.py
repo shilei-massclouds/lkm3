@@ -5,6 +5,7 @@ from engine import drive
 
 def derive_kernel():
     from kernel import Kernel
+
     kernel = Kernel()
 
     drive(kernel, "boot")

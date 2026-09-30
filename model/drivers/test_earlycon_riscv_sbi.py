@@ -1,6 +1,7 @@
 from engine import drive
 from global_vars import gv
 
+
 def test_earlycon_riscv_sbi():
     global gv
     gv.reset()

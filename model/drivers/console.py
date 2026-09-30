@@ -1,7 +1,9 @@
 """Console Device"""
 
 from dataclasses import dataclass
+
 from engine import Signal, System
+
 
 @dataclass
 class Console(System):

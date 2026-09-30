@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from engine import System, Signal, Engine, drive
+
+from engine import Signal, System, drive
+
 
 @dataclass
 class Kernel(System):

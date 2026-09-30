@@ -3,6 +3,7 @@
 from engine import drive
 from global_vars import gv
 
+
 def test_earlycon_drv_table():
     global gv
     gv.reset()

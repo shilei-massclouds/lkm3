@@ -1,9 +1,11 @@
 """EarlyCon Device and EarlyCon DriverTable"""
 
 from dataclasses import dataclass, field
+
 from drivers.console import Console
 from engine import Signal, System, drive, drive_all
 from kernel.params import Param
+
 
 @dataclass
 class EarlyCon(System):
@@ -36,6 +38,7 @@ class EarlyConDrvTable(System):
 class EarlyConParam(Param):
     def parse(self, sig: Signal):
         from global_vars import gv
+
         global gv
         if sig.args["key"] == "earlycon" and sig.args["early"]:
             val = sig.args["val"]

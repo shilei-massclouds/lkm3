@@ -1,6 +1,7 @@
 """Kernel Params"""
 
 from dataclasses import dataclass, field
+
 from engine import Signal, System, drive, drive_all
 
 
@@ -35,6 +36,7 @@ class CmdItem(System):
 
     def parse(self, sig: Signal):
         from global_vars import gv
+
         global gv
         early = sig.args["early"]
         drive(gv.kernel_param_table, "parse", key=self.key, val=self.val, early=early)

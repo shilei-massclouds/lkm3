@@ -2,6 +2,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+
 @dataclass
 class Signal:
     target: System
