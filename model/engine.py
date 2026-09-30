@@ -1,4 +1,5 @@
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +41,6 @@ def drive(target: System, action: str, **kwargs):
     engine.process()
 
 
-def drive_all(targets: list[System], action: str, **kwargs):
+def drive_all(targets: Iterable[System], action: str, **kwargs):
     for target in targets:
         drive(target, action, **kwargs)

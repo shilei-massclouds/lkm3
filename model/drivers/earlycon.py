@@ -26,7 +26,8 @@ class EarlyConDrvTable(System):
     table: list[EarlyConDrv] = field(default_factory=list)
 
     def register(self, sig: Signal):
-        drv = sig.args.get("drv")
+        drv = sig.args["drv"]
+        assert isinstance(drv, EarlyConDrv)
         self.table.append(drv)
 
     def probe(self, sig: Signal):

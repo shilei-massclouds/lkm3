@@ -16,6 +16,7 @@ class ParamTable(System):
 
     def register(self, sig: Signal):
         param = sig.args.get("param")
+        assert isinstance(param, Param)
         self.table.append(param)
 
     def parse(self, sig: Signal):
