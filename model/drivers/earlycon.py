@@ -39,7 +39,6 @@ class EarlyConParam(Param):
     def parse(self, sig: Signal):
         from global_vars import gv
 
-        global gv
         if sig.args["key"] == "earlycon" and sig.args["early"]:
             val = sig.args["val"]
             drive(gv.earlycon_driver_table, "probe", drv=val)
