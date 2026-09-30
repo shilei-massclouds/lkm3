@@ -19,4 +19,6 @@ class Kernel(System):
         drive(gv.boot_command_line, "add", key="earlycon", val="sbi")
 
     def boot(self, sig: Signal):
-        pass
+        from global_vars import gv
+
+        drive(gv.boot_init_flow, "arch_boot")

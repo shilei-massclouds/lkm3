@@ -25,7 +25,7 @@ class System:
 class Engine:
     signals: deque[Signal] = field(default_factory=deque)
 
-    def emit(self, target: System, action: str, args: dict[str, Any]):
+    def emit(self, target: System, action: str, **args):
         print(f"{action} -> {target}")
         self.signals.append(Signal(target, action, args, self))
 
@@ -37,7 +37,7 @@ class Engine:
 
 def drive(target: System, action: str, **kwargs):
     engine = Engine()
-    engine.emit(target, action, kwargs)
+    engine.emit(target, action, **kwargs)
     engine.process()
 
 
