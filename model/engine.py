@@ -1,7 +1,7 @@
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass
@@ -23,10 +23,12 @@ class System:
 
 @dataclass
 class Engine:
+    depth: ClassVar[int] = 0
     signals: deque[Signal] = field(default_factory=deque)
 
     def emit(self, target: System, action: str, **args):
-        print(f"{action} -> {target}")
+        indent = "    " * Engine.depth
+        print(f"{indent}{action} -> {target}")
         self.signals.append(Signal(target, action, args, self))
 
     def process(self):
@@ -36,9 +38,14 @@ class Engine:
 
 
 def drive(target: System, action: str, **kwargs):
+    indent = "    " * Engine.depth
+    print(f"{indent}{target}:")
+
+    Engine.depth += 1
     engine = Engine()
     engine.emit(target, action, **kwargs)
     engine.process()
+    Engine.depth -= 1
 
 
 def drive_all(targets: Iterable[System], action: str, **kwargs):

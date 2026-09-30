@@ -8,10 +8,9 @@ from engine import Signal, System
 @dataclass
 class Console(System):
     ready: bool = False
+    driver: str = ""
 
     def setup(self, sig: Signal):
         assert not self.ready
         self.ready = True
-
-        drv_name = sig.args.get("drv")
-        print(f"EarlyCon is ready with '{drv_name}'")
+        self.driver = sig.args["drv"]
