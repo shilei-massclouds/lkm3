@@ -13,7 +13,7 @@ class BootInitFlow(System):
     def early_setup(self, sig: Signal):
         from global_vars import gv
 
-        drive(gv.boot_command_line, "parse", early=True)
+        drive(self, gv.boot_command_line, "parse", early=True)
         sig.engine.emit(self, "enable_irq")
 
     def enable_irq(self, sig: Signal):

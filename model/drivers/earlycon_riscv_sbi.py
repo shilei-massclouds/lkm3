@@ -12,4 +12,4 @@ class EarlyConRiscvSBI(EarlyConDrv):
         from global_vars import gv
 
         if sig.args["drv"] == "sbi":
-            drive(gv.early_console_dev, "setup", drv="sbi")
+            drive(self, gv.early_console_dev, "setup", drv="sbi")

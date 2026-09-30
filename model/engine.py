@@ -37,9 +37,9 @@ class Engine:
             sig.handle()
 
 
-def drive(target: System, action: str, **kwargs):
+def drive(source: System, target: System, action: str, **kwargs):
     indent = "    " * Engine.depth
-    print(f"{indent}{target}:")
+    print(f"{indent}{source}:")
 
     Engine.depth += 1
     engine = Engine()
@@ -48,6 +48,6 @@ def drive(target: System, action: str, **kwargs):
     Engine.depth -= 1
 
 
-def drive_all(targets: Iterable[System], action: str, **kwargs):
+def drive_all(source: System, targets: Iterable[System], action: str, **kwargs):
     for target in targets:
-        drive(target, action, **kwargs)
+        drive(source, target, action, **kwargs)
