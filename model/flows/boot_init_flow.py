@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from engine import Signal, System
+from engine import Signal, System, drive
 
 
 @dataclass
@@ -11,6 +11,9 @@ class BootInitFlow(System):
         sig.engine.emit(self, "early_setup")
 
     def early_setup(self, sig: Signal):
+        from global_vars import gv
+
+        drive(gv.boot_command_line, "parse", early=True)
         sig.engine.emit(self, "enable_irq")
 
     def enable_irq(self, sig: Signal):
