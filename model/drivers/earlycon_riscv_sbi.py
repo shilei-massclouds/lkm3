@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from drivers.earlycon import EarlyConDrv
-from engine import Signal, drive
+from engine import Signal
 
 
 @dataclass
@@ -12,4 +12,4 @@ class EarlyConRiscvSBI(EarlyConDrv):
         from global_vars import gv
 
         if sig.args["drv"] == "sbi":
-            drive(self, gv.early_console_dev, "setup", drv="sbi")
+            self.drive(gv.early_console_dev, "setup", drv="sbi")

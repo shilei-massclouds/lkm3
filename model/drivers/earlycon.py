@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 from drivers.console import Console
-from engine import Signal, System, drive, drive_all
+from engine import Signal, System
 from kernel.params import Param
 
 
@@ -13,7 +13,7 @@ class EarlyCon(System):
 
     def setup(self, sig: Signal):
         drv_name = sig.args.get("drv")
-        drive(self, self.console, "setup", drv=drv_name)
+        self.drive(self.console, "setup", drv=drv_name)
 
 
 @dataclass
@@ -32,7 +32,7 @@ class EarlyConDrvTable(System):
 
     def probe(self, sig: Signal):
         drv = sig.args["drv"]
-        drive_all(self, self.table, "setup", drv=drv)
+        self.drive_all(self.table, "setup", drv=drv)
 
 
 @dataclass
@@ -42,4 +42,4 @@ class EarlyConParam(Param):
 
         if sig.args["key"] == "earlycon" and sig.args["early"]:
             val = sig.args["val"]
-            drive(self, gv.earlycon_driver_table, "probe", drv=val)
+            self.drive(gv.earlycon_driver_table, "probe", drv=val)

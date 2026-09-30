@@ -18,7 +18,19 @@ class Signal:
 
 @dataclass
 class System:
-    pass
+    def drive(self, target: System, action: str, **kwargs):
+        indent = "    " * Engine.depth
+        print(f"{indent}{self}:")
+
+        Engine.depth += 1
+        engine = Engine()
+        engine.emit(target, action, **kwargs)
+        engine.process()
+        Engine.depth -= 1
+
+    def drive_all(self, targets: Iterable[System], action: str, **kwargs):
+        for target in targets:
+            self.drive(target, action, **kwargs)
 
 
 @dataclass
@@ -35,19 +47,3 @@ class Engine:
         while self.signals:
             sig = self.signals.popleft()
             sig.handle()
-
-
-def drive(source: System, target: System, action: str, **kwargs):
-    indent = "    " * Engine.depth
-    print(f"{indent}{source}:")
-
-    Engine.depth += 1
-    engine = Engine()
-    engine.emit(target, action, **kwargs)
-    engine.process()
-    Engine.depth -= 1
-
-
-def drive_all(source: System, targets: Iterable[System], action: str, **kwargs):
-    for target in targets:
-        drive(source, target, action, **kwargs)

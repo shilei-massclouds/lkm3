@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from engine import Signal, System, drive, drive_all
+from engine import Signal, System
 
 
 @dataclass
@@ -23,7 +23,7 @@ class ParamTable(System):
         key = sig.args["key"]
         val = sig.args["val"]
         early = sig.args["early"]
-        drive_all(self, self.table, "parse", key=key, val=val, early=early)
+        self.drive_all(self.table, "parse", key=key, val=val, early=early)
 
 
 @dataclass(init=False)
@@ -39,8 +39,7 @@ class CmdItem(System):
         from global_vars import gv
 
         early = sig.args["early"]
-        drive(
-            self,
+        self.drive(
             gv.kernel_param_table,
             "parse",
             key=self.key,
@@ -59,4 +58,4 @@ class CmdLine(System):
 
     def parse(self, sig: Signal):
         early = sig.args["early"]
-        drive_all(self, self.items, "parse", early=early)
+        self.drive_all(self.items, "parse", early=early)

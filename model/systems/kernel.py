@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from engine import Signal, System, drive
+from engine import Signal, System
 
 
 @dataclass
@@ -13,12 +13,12 @@ class Kernel(System):
     def setup(self, sig: Signal):
         from global_vars import gv
 
-        drive(self, gv.kernel_param_table, "register", param=gv.earlycon_param)
-        drive(self, gv.earlycon_driver_table, "register", drv=gv.earlycon_riscv_sbi)
+        self.drive(gv.kernel_param_table, "register", param=gv.earlycon_param)
+        self.drive(gv.earlycon_driver_table, "register", drv=gv.earlycon_riscv_sbi)
 
-        drive(self, gv.boot_command_line, "add", key="earlycon", val="sbi")
+        self.drive(gv.boot_command_line, "add", key="earlycon", val="sbi")
 
     def boot(self, sig: Signal):
         from global_vars import gv
 
-        drive(self, gv.boot_init_flow, "arch_boot")
+        self.drive(gv.boot_init_flow, "arch_boot")

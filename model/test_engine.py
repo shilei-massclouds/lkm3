@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from engine import Engine, Signal, System, drive, drive_all
+from engine import Engine, Signal, System
 from systems.computer import Computer
 
 
@@ -21,7 +21,7 @@ class Receiver(System):
         sig.engine.emit(self, "receive", payload=sig.args["payload"])
 
     def relay(self, sig: Signal):
-        drive(self, sig.args["recipient"], "enqueue", payload=sig.args["payload"])
+        self.drive(sig.args["recipient"], "enqueue", payload=sig.args["payload"])
 
 
 def test_drive_source_and_nested_events(capsys):
@@ -30,7 +30,7 @@ def test_drive_source_and_nested_events(capsys):
     target = Receiver("Target")
     payload = object()
 
-    drive(source, relay, "relay", recipient=target, payload=payload)
+    source.drive(relay, "relay", recipient=target, payload=payload)
 
     assert len(target.received) == 1
     assert target.received[0] is payload
@@ -50,7 +50,7 @@ def test_drive_all_source_and_generator(capsys):
     targets = [Receiver("First"), Receiver("Second")]
     payload = object()
 
-    drive_all(source, (target for target in targets), "receive", payload=payload)
+    source.drive_all((target for target in targets), "receive", payload=payload)
 
     for target in targets:
         assert len(target.received) == 1
