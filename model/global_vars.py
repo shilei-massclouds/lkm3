@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+from drivers.console import ConsoleList
 from drivers.earlycon import EarlyCon, EarlyConDrvTable, EarlyConParam
 from drivers.earlycon_riscv_sbi import EarlyConRiscvSBI
 from flows.boot_init_flow import BootInitFlow
@@ -21,6 +22,7 @@ class GlobalVars:
     boot_command_line: CmdLine = field(default_factory=CmdLine)
     kernel_param_table: ParamTable = field(default_factory=ParamTable)
     boot_init_flow: BootInitFlow = field(default_factory=BootInitFlow)
+    console_list: ConsoleList = field(default_factory=ConsoleList)
 
     def reset(self):
         self.__init__()

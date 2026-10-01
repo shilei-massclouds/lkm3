@@ -12,8 +12,11 @@ class EarlyCon(System):
     console: Console = field(default_factory=Console)
 
     def setup(self, sig: Signal):
+        from global_vars import gv
+
         drv_name = sig.args.get("drv")
         self.drive(self.console, "setup", drv=drv_name)
+        self.drive(gv.console_list, "register", con=self.console)
 
 
 @dataclass
