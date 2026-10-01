@@ -6,6 +6,7 @@ from drivers.console import ConsoleList
 from drivers.earlycon import EarlyCon, EarlyConDrvTable, EarlyConParam
 from drivers.earlycon_riscv_sbi import EarlyConRiscvSBI
 from flows.boot_init_flow import BootInitFlow
+from kernel.io import Io, PrintkRingBuffer
 from kernel.params import CmdLine, ParamTable
 from systems.computer import Computer
 from systems.kernel import Kernel
@@ -23,6 +24,8 @@ class GlobalVars:
     kernel_param_table: ParamTable = field(default_factory=ParamTable)
     boot_init_flow: BootInitFlow = field(default_factory=BootInitFlow)
     console_list: ConsoleList = field(default_factory=ConsoleList)
+    io: Io = field(default_factory=Io)
+    prb: PrintkRingBuffer = field(default_factory=PrintkRingBuffer)
 
     def reset(self):
         self.__init__()
