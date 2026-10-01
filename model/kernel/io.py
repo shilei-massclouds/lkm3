@@ -21,6 +21,9 @@ class PrintkRingBuffer(System):
     def commit(self, sig: Signal):
         pass
 
+    def get_next_record(self, sig: Signal):
+        pass
+
 
 @dataclass
 class Io(System):
@@ -28,3 +31,4 @@ class Io(System):
         from global_vars import gv
 
         self.drive(gv.prb, "store")
+        self.drive(gv.console_list, "flush_all")
