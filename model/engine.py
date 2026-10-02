@@ -15,6 +15,9 @@ class Signal:
         action = getattr(self.target, self.action)
         action(self)
 
+    def chain(self, target: System, action: str, **kwargs):
+        self.engine.emit(target, action, **kwargs)
+
 
 @dataclass
 class System:
