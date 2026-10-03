@@ -1,13 +1,13 @@
 """Test contention domains and their partial order."""
 
-from framework.sync import ContentionEnv
+from framework.sync import ContentionVector
 
 DOMAINS = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
 
 
 def test_named_constructors_initialize_all_domains_and_remote_limit():
-    ones = ContentionEnv.ones()
-    zeros = ContentionEnv.zeros()
+    ones = ContentionVector.ones()
+    zeros = ContentionVector.zeros()
 
     assert all(getattr(ones, domain) == 1 for domain in DOMAINS)
     assert ones._remote_limit == 1
@@ -16,10 +16,10 @@ def test_named_constructors_initialize_all_domains_and_remote_limit():
 
 
 def test_minimum_combines_domains_without_changing_inputs():
-    left = ContentionEnv.ones()
+    left = ContentionVector.ones()
     left.local_tasks = 0
     left.remote_tasks = 0
-    right = ContentionEnv.ones()
+    right = ContentionVector.ones()
     right.local_irq = 0
     right.remote_tasks = 0
 
@@ -42,24 +42,24 @@ def test_minimum_combines_domains_without_changing_inputs():
 
 
 def test_comparison_requires_every_domain_to_satisfy_the_limit():
-    left = ContentionEnv.ones()
+    left = ContentionVector.ones()
     left.local_tasks = 0
-    right = ContentionEnv.ones()
+    right = ContentionVector.ones()
     right.local_irq = 0
-    equal = ContentionEnv.ones()
+    equal = ContentionVector.ones()
     equal.local_tasks = 0
 
     assert left <= equal
     assert equal <= left
     assert not left <= right
     assert not right <= left
-    assert left <= ContentionEnv.ones()
-    assert ContentionEnv.zeros() <= left
+    assert left <= ContentionVector.ones()
+    assert ContentionVector.zeros() <= left
 
 
 def test_remote_limit_is_not_a_competition_domain():
-    left = ContentionEnv.ones()
-    right = ContentionEnv.ones()
+    left = ContentionVector.ones()
+    right = ContentionVector.ones()
     left._remote_limit = 0
 
     assert left <= right

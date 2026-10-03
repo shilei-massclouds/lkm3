@@ -1,12 +1,12 @@
 """Test Parsing Params"""
 
-from framework.sync import ContentionEnv
+from framework.sync import ContentionVector
 from global_vars import gv
 
 
 def test_parsing_early_params():
     gv.reset()
-    ce = ContentionEnv.ones()
+    ce = ContentionVector.ones()
 
     gv.computer.drive(
         ce, gv.earlycon_driver_table, "register", drv=gv.earlycon_riscv_sbi

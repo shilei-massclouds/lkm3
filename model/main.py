@@ -1,11 +1,11 @@
 """Derive Entry"""
 
-from framework.sync import ContentionEnv
+from framework.sync import ContentionVector
 from global_vars import gv
 
 
 def main() -> None:
-    ce = ContentionEnv.ones()
+    ce = ContentionVector.ones()
     gv.computer.drive(ce, gv.kernel, "setup")
     gv.computer.drive(ce, gv.kernel, "boot")
 

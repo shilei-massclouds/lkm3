@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from framework.engine import Engine, Signal, System
-from framework.sync import ContentionEnv
+from framework.sync import ContentionVector
 from systems.computer import Computer
 
 
@@ -13,7 +13,7 @@ from systems.computer import Computer
 class Receiver(System):
     name: str
     received: list[object] = field(default_factory=list)
-    environments: list[ContentionEnv] = field(default_factory=list)
+    environments: list[ContentionVector] = field(default_factory=list)
 
     def __repr__(self):
         return self.name
@@ -37,10 +37,10 @@ class Receiver(System):
 
 
 def test_drive_source_and_nested_events(capsys):
-    ce = ContentionEnv.ones()
+    ce = ContentionVector.ones()
     source = Computer()
-    relay = Receiver("Relay", require_ce=ContentionEnv.ones())
-    target = Receiver("Target", require_ce=ContentionEnv.ones())
+    relay = Receiver("Relay", require_ce=ContentionVector.ones())
+    target = Receiver("Target", require_ce=ContentionVector.ones())
     payload = object()
 
     source.drive(ce, relay, "relay", recipient=target, payload=payload)
@@ -63,11 +63,11 @@ def test_drive_source_and_nested_events(capsys):
 
 
 def test_drive_all_source_and_generator(capsys):
-    ce = ContentionEnv.ones()
+    ce = ContentionVector.ones()
     source = Computer()
     targets = [
-        Receiver("First", require_ce=ContentionEnv.ones()),
-        Receiver("Second", require_ce=ContentionEnv.ones()),
+        Receiver("First", require_ce=ContentionVector.ones()),
+        Receiver("Second", require_ce=ContentionVector.ones()),
     ]
     payload = object()
 
@@ -88,12 +88,12 @@ def test_drive_all_source_and_generator(capsys):
 
 
 def test_signal_releases_environment_when_action_raises():
-    ce = ContentionEnv.ones()
+    ce = ContentionVector.ones()
     error = RuntimeError("action failed")
-    calls: list[tuple[str, ContentionEnv]] = []
+    calls: list[tuple[str, ContentionVector]] = []
 
     class FailingTarget(System):
-        def acquire(self, ce: ContentionEnv):
+        def acquire(self, ce: ContentionVector):
             calls.append(("acquire", ce))
             ce.local_irq = 0
             ce.local_tasks = 0
@@ -106,7 +106,7 @@ def test_signal_releases_environment_when_action_raises():
             assert sig.engine.ce.local_irq == 0
             raise error
 
-        def release(self, ce: ContentionEnv):
+        def release(self, ce: ContentionVector):
             calls.append(("release", ce))
             ce.local_irq = 1
             ce.local_tasks = 1
@@ -125,7 +125,7 @@ def test_signal_releases_environment_when_action_raises():
 
 
 def test_system_defaults_require_exclusive_access():
-    ce = ContentionEnv.ones()
+    ce = ContentionVector.ones()
     system = System()
 
     assert system.visibility.local_irq == 1
@@ -146,24 +146,24 @@ def test_system_defaults_require_exclusive_access():
 
 
 def test_invariant_masks_visibility_and_checks_each_required_domain():
-    ce = ContentionEnv.ones()
-    visibility = ContentionEnv.zeros()
+    ce = ContentionVector.ones()
+    visibility = ContentionVector.zeros()
     visibility.remote_tasks = 1
     system = System(visibility=visibility)
 
     assert not system.check_invariant(ce)
 
-    require_ce = ContentionEnv.zeros()
+    require_ce = ContentionVector.zeros()
     require_ce.remote_tasks = 1
     tolerant = System(visibility=visibility, require_ce=require_ce)
     assert tolerant.check_invariant(ce)
     assert not System(require_ce=require_ce).check_invariant(ce)
-    assert System(visibility=ContentionEnv.zeros()).check_invariant(ce)
+    assert System(visibility=ContentionVector.zeros()).check_invariant(ce)
     assert ce.local_irq == ce.local_tasks == ce.remote_irq == ce.remote_tasks == 1
 
 
 def test_drive_stops_before_action_when_invariant_fails():
-    ce = ContentionEnv.ones()
+    ce = ContentionVector.ones()
     source = Computer()
     target = Receiver("Target")
 

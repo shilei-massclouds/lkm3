@@ -1,7 +1,7 @@
 """Contention Utilities"""
 
 
-class ContentionEnv:
+class ContentionVector:
     local_irq: int
     local_tasks: int
     remote_irq: int
@@ -26,30 +26,30 @@ class ContentionEnv:
 
     def __repr__(self):
         return (
-            f"ContentionEnv(local_irq={self.local_irq}, "
+            f"ContentionVector(local_irq={self.local_irq}, "
             f"local_tasks={self.local_tasks}, remote_irq={self.remote_irq}, "
             f"remote_tasks={self.remote_tasks})"
         )
 
     @staticmethod
-    def ones() -> ContentionEnv:
-        return ContentionEnv()
+    def ones() -> ContentionVector:
+        return ContentionVector()
 
     @staticmethod
-    def zeros() -> ContentionEnv:
-        return ContentionEnv(zero=True)
+    def zeros() -> ContentionVector:
+        return ContentionVector(zero=True)
 
-    def min(self, other: ContentionEnv) -> ContentionEnv:
+    def min(self, other: ContentionVector) -> ContentionVector:
         """Return the minimum in each domain without changing either input."""
-        return ContentionEnv(
+        return ContentionVector(
             local_irq=min(self.local_irq, other.local_irq),
             local_tasks=min(self.local_tasks, other.local_tasks),
             remote_irq=min(self.remote_irq, other.remote_irq),
             remote_tasks=min(self.remote_tasks, other.remote_tasks),
         )
 
-    def __le__(self, other: ContentionEnv) -> bool:
-        if not isinstance(other, ContentionEnv):
+    def __le__(self, other: ContentionVector) -> bool:
+        if not isinstance(other, ContentionVector):
             return NotImplemented
         return (
             self.local_irq <= other.local_irq
