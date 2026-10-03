@@ -19,7 +19,7 @@ class Console(System):
     def emit_next_record(self, sig: Signal):
         from global_vars import gv
 
-        self.drive(gv.prb, "emit_next_record", con=self)
+        self.drive(sig.engine.ce, gv.prb, "emit_next_record", con=self)
 
     def write(self, sig: Signal):
         print(f"=== Stdout: {sig.args['msg']} ===")
@@ -35,7 +35,7 @@ class ConsoleList(System):
         con = sig.args["con"]
         self.items.append(con)
         msg = f"console[{con.driver}]: enabled."
-        self.drive(gv.io, "printk", msg=msg)  # trigger flush prb
+        self.drive(sig.engine.ce, gv.io, "printk", msg=msg)  # trigger flush prb
 
     def flush_all(self, sig: Signal):
-        self.drive_all(self.items, "emit_next_record")
+        self.drive_all(sig.engine.ce, self.items, "emit_next_record")

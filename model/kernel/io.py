@@ -23,7 +23,7 @@ class PrintkRecord(System):
         con = sig.args["con"]
         if con.seq == self.seq:
             if self.state == "committed":
-                self.drive(con, "write", msg=self.data)
+                self.drive(sig.engine.ce, con, "write", msg=self.data)
                 con.seq += 1
             else:
                 con.seq = reset_id
@@ -40,7 +40,7 @@ class PrintkRingBuffer(System):
         return f"PrintkRingBuffer({num} records, head={head})"
 
     def store(self, sig: Signal):
-        self.drive(self, "reserve", msg=sig.args["msg"])
+        self.drive(sig.engine.ce, self, "reserve", msg=sig.args["msg"])
 
     def reserve(self, sig: Signal):
         rid = self.head_id
@@ -51,17 +51,17 @@ class PrintkRingBuffer(System):
     def fill(self, sig: Signal):
         rid = sig.args["rid"]
         msg = sig.args["msg"]
-        self.drive(self.records[rid], "fill", msg=msg)
+        self.drive(sig.engine.ce, self.records[rid], "fill", msg=msg)
         sig.chain(self, "commit", rid=rid)
 
     def commit(self, sig: Signal):
         rid = sig.args["rid"]
-        self.drive(self.records[rid], "commit")
+        self.drive(sig.engine.ce, self.records[rid], "commit")
 
     def emit_next_record(self, sig: Signal):
         con = sig.args["con"]
         seq = con.seq
-        self.drive_all(self.records[seq:], "flush", con=con, head_id=self.head_id)
+        self.drive_all(sig.engine.ce, self.records[seq:], "flush", con=con, head_id=self.head_id)
 
 
 @dataclass
@@ -69,5 +69,5 @@ class Io(System):
     def printk(self, sig: Signal):
         from global_vars import gv
 
-        self.drive(gv.prb, "store", msg=sig.args["msg"])
-        self.drive(gv.console_list, "flush_all")
+        self.drive(sig.engine.ce, gv.prb, "store", msg=sig.args["msg"])
+        self.drive(sig.engine.ce, gv.console_list, "flush_all")
