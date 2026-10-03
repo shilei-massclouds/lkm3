@@ -1,5 +1,6 @@
 """Contention Utilities"""
 
+
 class ContentionEnv:
     local_irq: int
     local_tasks: int

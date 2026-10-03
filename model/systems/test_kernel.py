@@ -1,12 +1,14 @@
 """Test Kernel Setup"""
 
 from global_vars import gv
+from sync import ContentionEnv
 
 
 def test_kernel_setup():
     gv.reset()
+    ce = ContentionEnv()
 
-    gv.computer.drive(gv.kernel, "setup")
+    gv.computer.drive(ce, gv.kernel, "setup")
 
     assert gv.kernel_param_table.table == [gv.earlycon_param]
     assert gv.earlycon_driver_table.table == [gv.earlycon_riscv_sbi]

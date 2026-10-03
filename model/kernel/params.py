@@ -23,7 +23,9 @@ class ParamTable(System):
         key = sig.args["key"]
         val = sig.args["val"]
         early = sig.args["early"]
-        self.drive_all(sig.engine.ce, self.table, "parse", key=key, val=val, early=early)
+        self.drive_all(
+            sig.engine.ce, self.table, "parse", key=key, val=val, early=early
+        )
 
 
 @dataclass(init=False)

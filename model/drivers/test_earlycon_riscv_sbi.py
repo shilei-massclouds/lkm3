@@ -1,7 +1,9 @@
 from global_vars import gv
+from sync import ContentionEnv
 
 
 def test_earlycon_riscv_sbi():
     gv.reset()
-    gv.computer.drive(gv.earlycon_riscv_sbi, "setup", drv="sbi")
+    ce = ContentionEnv()
+    gv.computer.drive(ce, gv.earlycon_riscv_sbi, "setup", drv="sbi")
     assert gv.early_console_dev.console.ready

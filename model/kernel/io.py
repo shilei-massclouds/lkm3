@@ -61,7 +61,9 @@ class PrintkRingBuffer(System):
     def emit_next_record(self, sig: Signal):
         con = sig.args["con"]
         seq = con.seq
-        self.drive_all(sig.engine.ce, self.records[seq:], "flush", con=con, head_id=self.head_id)
+        self.drive_all(
+            sig.engine.ce, self.records[seq:], "flush", con=con, head_id=self.head_id
+        )
 
 
 @dataclass
