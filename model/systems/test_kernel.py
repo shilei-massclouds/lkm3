@@ -6,7 +6,7 @@ from global_vars import gv
 
 def test_kernel_setup():
     gv.reset()
-    ce = ContentionEnv()
+    ce = ContentionEnv.ones()
 
     gv.computer.drive(ce, gv.kernel, "setup")
 

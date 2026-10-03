@@ -34,6 +34,7 @@ class CmdItem(System):
     val: str
 
     def __init__(self, key: str, val: str):
+        super().__init__()
         self.key = key
         self.val = val
 

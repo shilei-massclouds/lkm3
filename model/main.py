@@ -5,7 +5,7 @@ from global_vars import gv
 
 
 def main() -> None:
-    ce = ContentionEnv()
+    ce = ContentionEnv.ones()
     gv.computer.drive(ce, gv.kernel, "setup")
     gv.computer.drive(ce, gv.kernel, "boot")
 

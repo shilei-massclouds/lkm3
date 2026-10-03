@@ -37,10 +37,10 @@ class Receiver(System):
 
 
 def test_drive_source_and_nested_events(capsys):
-    ce = ContentionEnv()
+    ce = ContentionEnv.ones()
     source = Computer()
-    relay = Receiver("Relay")
-    target = Receiver("Target")
+    relay = Receiver("Relay", require_ce=ContentionEnv.ones())
+    target = Receiver("Target", require_ce=ContentionEnv.ones())
     payload = object()
 
     source.drive(ce, relay, "relay", recipient=target, payload=payload)
@@ -63,9 +63,12 @@ def test_drive_source_and_nested_events(capsys):
 
 
 def test_drive_all_source_and_generator(capsys):
-    ce = ContentionEnv()
+    ce = ContentionEnv.ones()
     source = Computer()
-    targets = [Receiver("First"), Receiver("Second")]
+    targets = [
+        Receiver("First", require_ce=ContentionEnv.ones()),
+        Receiver("Second", require_ce=ContentionEnv.ones()),
+    ]
     payload = object()
 
     source.drive_all(ce, (target for target in targets), "receive", payload=payload)
@@ -85,7 +88,7 @@ def test_drive_all_source_and_generator(capsys):
 
 
 def test_signal_releases_environment_when_action_raises():
-    ce = ContentionEnv()
+    ce = ContentionEnv.ones()
     error = RuntimeError("action failed")
     calls: list[tuple[str, ContentionEnv]] = []
 
@@ -93,6 +96,10 @@ def test_signal_releases_environment_when_action_raises():
         def acquire(self, ce: ContentionEnv):
             calls.append(("acquire", ce))
             ce.local_irq = 0
+            ce.local_tasks = 0
+            ce.remote_irq = 0
+            ce.remote_tasks = 0
+            super().acquire(ce)
 
         def fail(self, sig: Signal):
             calls.append(("action", sig.engine.ce))
@@ -102,6 +109,9 @@ def test_signal_releases_environment_when_action_raises():
         def release(self, ce: ContentionEnv):
             calls.append(("release", ce))
             ce.local_irq = 1
+            ce.local_tasks = 1
+            ce.remote_irq = 1
+            ce.remote_tasks = 1
 
     signal = Signal(FailingTarget(), "fail", {}, Engine(ce))
 
@@ -111,4 +121,55 @@ def test_signal_releases_environment_when_action_raises():
     assert exc_info.value is error
     assert [phase for phase, _ in calls] == ["acquire", "action", "release"]
     assert all(env is ce for _, env in calls)
-    assert ce.local_irq == 1
+    assert ce.local_irq == ce.local_tasks == ce.remote_irq == ce.remote_tasks == 1
+
+
+def test_system_defaults_require_exclusive_access():
+    ce = ContentionEnv.ones()
+    system = System()
+
+    assert system.visibility.local_irq == 1
+    assert system.visibility.local_tasks == 1
+    assert system.visibility.remote_irq == 1
+    assert system.visibility.remote_tasks == 1
+    assert system.require_ce.local_irq == 0
+    assert system.require_ce.local_tasks == 0
+    assert system.require_ce.remote_irq == 0
+    assert system.require_ce.remote_tasks == 0
+    assert not system.check_invariant(ce)
+
+    ce.local_irq = 0
+    ce.local_tasks = 0
+    ce.remote_irq = 0
+    ce.remote_tasks = 0
+    assert system.check_invariant(ce)
+
+
+def test_invariant_masks_visibility_and_checks_each_required_domain():
+    ce = ContentionEnv.ones()
+    visibility = ContentionEnv.zeros()
+    visibility.remote_tasks = 1
+    system = System(visibility=visibility)
+
+    assert not system.check_invariant(ce)
+
+    require_ce = ContentionEnv.zeros()
+    require_ce.remote_tasks = 1
+    tolerant = System(visibility=visibility, require_ce=require_ce)
+    assert tolerant.check_invariant(ce)
+    assert not System(require_ce=require_ce).check_invariant(ce)
+    assert System(visibility=ContentionEnv.zeros()).check_invariant(ce)
+    assert ce.local_irq == ce.local_tasks == ce.remote_irq == ce.remote_tasks == 1
+
+
+def test_drive_stops_before_action_when_invariant_fails():
+    ce = ContentionEnv.ones()
+    source = Computer()
+    target = Receiver("Target")
+
+    with pytest.raises(AssertionError, match="Contention invariant violated"):
+        source.drive(ce, target, "receive", payload=object())
+
+    assert not target.received
+    assert not target.environments
+    assert Engine.depth == 0

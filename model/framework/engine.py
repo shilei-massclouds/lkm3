@@ -27,15 +27,24 @@ class Signal:
 
 @dataclass
 class System:
+    visibility: ContentionEnv = field(
+        default_factory=ContentionEnv.ones, kw_only=True, repr=False
+    )
+    require_ce: ContentionEnv = field(
+        default_factory=ContentionEnv.zeros, kw_only=True, repr=False
+    )
+
     def drive(self, ce: ContentionEnv, target: System, action: str, **kwargs):
         indent = "    " * Engine.depth
         print(f"{indent}{self}:")
 
         Engine.depth += 1
-        engine = Engine(ce)
-        engine.emit(target, action, **kwargs)
-        engine.process()
-        Engine.depth -= 1
+        try:
+            engine = Engine(ce)
+            engine.emit(target, action, **kwargs)
+            engine.process()
+        finally:
+            Engine.depth -= 1
 
     def drive_all(
         self, ce: ContentionEnv, targets: Iterable[System], action: str, **kwargs
@@ -44,10 +53,18 @@ class System:
             self.drive(ce, target, action, **kwargs)
 
     def acquire(self, ce: ContentionEnv):
-        pass
+        if not self.check_invariant(ce):
+            raise AssertionError(
+                f"Contention invariant violated for {self}: "
+                f"ce={ce}, visibility={self.visibility}, require_ce={self.require_ce}"
+            )
 
     def release(self, ce: ContentionEnv):
         pass
+
+    def check_invariant(self, ce: ContentionEnv) -> bool:
+        effective_ce = ce.min(self.visibility)
+        return effective_ce <= self.require_ce
 
 
 @dataclass

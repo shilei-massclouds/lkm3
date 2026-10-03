@@ -8,19 +8,55 @@ class ContentionEnv:
     remote_tasks: int
     _remote_limit: int
 
-    def __init__(self, zero=False):
-        if zero:
-            self.local_irq = 0
-            self.local_tasks = 0
-            self.remote_irq = 0
-            self.remote_tasks = 0
-            self._remote_limit = 0
-        else:
-            self.local_irq = 1
-            self.local_tasks = 1
-            self.remote_irq = 1
-            self.remote_tasks = 1
-            self._remote_limit = 1
+    def __init__(
+        self,
+        zero: bool = False,
+        *,
+        local_irq: int | None = None,
+        local_tasks: int | None = None,
+        remote_irq: int | None = None,
+        remote_tasks: int | None = None,
+    ):
+        default = 0 if zero else 1
+        self.local_irq = default if local_irq is None else local_irq
+        self.local_tasks = default if local_tasks is None else local_tasks
+        self.remote_irq = default if remote_irq is None else remote_irq
+        self.remote_tasks = default if remote_tasks is None else remote_tasks
+        self._remote_limit = default
+
+    def __repr__(self):
+        return (
+            f"ContentionEnv(local_irq={self.local_irq}, "
+            f"local_tasks={self.local_tasks}, remote_irq={self.remote_irq}, "
+            f"remote_tasks={self.remote_tasks})"
+        )
+
+    @staticmethod
+    def ones() -> ContentionEnv:
+        return ContentionEnv()
+
+    @staticmethod
+    def zeros() -> ContentionEnv:
+        return ContentionEnv(zero=True)
+
+    def min(self, other: ContentionEnv) -> ContentionEnv:
+        """Return the minimum in each domain without changing either input."""
+        return ContentionEnv(
+            local_irq=min(self.local_irq, other.local_irq),
+            local_tasks=min(self.local_tasks, other.local_tasks),
+            remote_irq=min(self.remote_irq, other.remote_irq),
+            remote_tasks=min(self.remote_tasks, other.remote_tasks),
+        )
+
+    def __le__(self, other: ContentionEnv) -> bool:
+        if not isinstance(other, ContentionEnv):
+            return NotImplemented
+        return (
+            self.local_irq <= other.local_irq
+            and self.local_tasks <= other.local_tasks
+            and self.remote_irq <= other.remote_irq
+            and self.remote_tasks <= other.remote_tasks
+        )
 
     def acquire(self, sp: SyncPrimitive):
         pass
