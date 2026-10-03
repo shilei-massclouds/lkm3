@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from engine import Engine, Signal, System
-from sync import ContentionEnv
+from framework.engine import Engine, Signal, System
+from framework.sync import ContentionEnv
 from systems.computer import Computer
 
 

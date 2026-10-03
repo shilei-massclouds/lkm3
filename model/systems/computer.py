@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from engine import System
+from framework.engine import System
 
 
 @dataclass

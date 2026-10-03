@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-from sync import ContentionEnv
+from framework.sync import ContentionEnv
 
 
 @dataclass

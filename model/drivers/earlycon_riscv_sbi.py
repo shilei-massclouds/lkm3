@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from drivers.earlycon import EarlyConDrv
-from engine import Signal
+from framework.engine import Signal
 
 
 @dataclass

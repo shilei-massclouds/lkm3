@@ -1,7 +1,7 @@
 """Derive Entry"""
 
+from framework.sync import ContentionEnv
 from global_vars import gv
-from sync import ContentionEnv
 
 
 def main() -> None:

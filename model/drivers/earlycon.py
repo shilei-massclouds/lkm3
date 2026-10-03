@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 from drivers.console import Console
-from engine import Signal, System
+from framework.engine import Signal, System
 from kernel.params import Param
 
 

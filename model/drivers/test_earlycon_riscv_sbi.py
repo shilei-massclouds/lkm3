@@ -1,5 +1,5 @@
+from framework.sync import ContentionEnv
 from global_vars import gv
-from sync import ContentionEnv
 
 
 def test_earlycon_riscv_sbi():

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from engine import Signal, System
+from framework.engine import Signal, System
 
 
 @dataclass
