@@ -64,7 +64,9 @@ class System:
 
     def acquire(self, cv: ContentionVector, action: str):
         assert self.check_invariant(cv), self.format_invariant(
-            cv, f"Contention invariant violated for {self}.{action}:"
+            cv,
+            f"Contention invariant violated for {self}.{action}:",
+            show_violations=True,
         )
 
     def release(self, cv: ContentionVector, action: str):
@@ -79,11 +81,28 @@ class System:
             )
         return effective_cv <= self.require_cv
 
-    def format_invariant(self, cv: ContentionVector, header: str) -> str:
-        """Format the three invariant inputs with a header and call indentation."""
+    def violated_domains(self, cv: ContentionVector) -> list[str]:
+        """List domains whose visible contention exceeds their requirement."""
+        effective_cv = cv.min(self.visibility)
+        return [
+            domain
+            for domain in ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
+            if getattr(effective_cv, domain) > getattr(self.require_cv, domain)
+        ]
+
+    def format_invariant(
+        self, cv: ContentionVector, header: str, *, show_violations: bool = False
+    ) -> str:
+        """Format the invariant inputs and optional violations with call indentation."""
         indent = "    " * Engine.depth
+        violations = (
+            f"{indent}    violated domains: {', '.join(self.violated_domains(cv))}\n"
+            if show_violations
+            else ""
+        )
         return (
             f"{indent}{header}\n"
+            f"{violations}"
             f"{indent}    cv={cv}\n"
             f"{indent}    visibility={self.visibility}\n"
             f"{indent}    require_cv={self.require_cv}"

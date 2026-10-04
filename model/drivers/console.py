@@ -31,7 +31,7 @@ class ConsoleList(System):
 
     def __repr__(self):
         num = len(self.items)
-        return f"ConsoleList({num} item(s))"
+        return f"ConsoleList[{num} item(s)]"
 
     def register(self, sig: Signal):
         from global_vars import gv
