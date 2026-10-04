@@ -68,8 +68,13 @@ class PrintkRingBuffer(System):
 
 @dataclass
 class Io(System):
+    def __repr__(self):
+        return "Io"
+
     def printk(self, sig: Signal):
         from global_vars import gv
 
         self.drive(sig.engine.cv, gv.prb, "store", msg=sig.args["msg"])
+        # preempt_disable
         self.drive(sig.engine.cv, gv.console_list, "flush_all")
+        # preempt_enable

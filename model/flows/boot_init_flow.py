@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from framework.engine import Signal, System
+from framework.sync import LocalIrq
 
 
 @dataclass
@@ -13,6 +14,7 @@ class BootInitFlow(System):
     def early_setup(self, sig: Signal):
         from global_vars import gv
 
+        LocalIrq().disable(sig.engine.cv)
         self.drive(sig.engine.cv, gv.io, "printk", msg="banner")
         self.drive(sig.engine.cv, gv.boot_command_line, "parse", early=True)
         sig.chain(self, "enable_irq")
@@ -20,6 +22,7 @@ class BootInitFlow(System):
     def enable_irq(self, sig: Signal):
         from global_vars import gv
 
+        LocalIrq().enable(sig.engine.cv)
         self.drive(sig.engine.cv, gv.io, "printk", msg="local irq enabled.")
         sig.chain(self, "spawn_tasks")
 

@@ -58,15 +58,17 @@ class ContentionVector:
             and self.remote_tasks <= other.remote_tasks
         )
 
-    def acquire(self, sp: SyncPrimitive):
-        pass
-
-    def release(self, sp: SyncPrimitive):
-        pass
-
 
 class SyncPrimitive:
     pass
+
+
+class LocalIrq(SyncPrimitive):
+    def enable(self, cv: ContentionVector):
+        cv.local_irq = 1
+
+    def disable(self, cv: ContentionVector):
+        cv.local_irq = 0
 
 
 FREE_CV = ContentionVector.ones()
