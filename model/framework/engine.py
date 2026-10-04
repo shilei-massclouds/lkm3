@@ -15,11 +15,11 @@ class Signal:
 
     def handle(self):
         action = getattr(self.target, self.action)
-        self.target.acquire(self.engine.ce)
+        self.target.acquire(self.engine.ce, self.action)
         try:
             action(self)
         finally:
-            self.target.release(self.engine.ce)
+            self.target.release(self.engine.ce, self.action)
 
     def chain(self, target: System, action: str, **kwargs):
         self.engine.emit(target, action, **kwargs)
@@ -30,7 +30,7 @@ class System:
     visibility: ContentionVector = field(
         default_factory=ContentionVector.ones, kw_only=True, repr=False
     )
-    require_ce: ContentionVector = field(
+    require_cv: ContentionVector = field(
         default_factory=ContentionVector.zeros, kw_only=True, repr=False
     )
 
@@ -52,19 +52,19 @@ class System:
         for target in targets:
             self.drive(ce, target, action, **kwargs)
 
-    def acquire(self, ce: ContentionVector):
+    def acquire(self, ce: ContentionVector, action: str):
         if not self.check_invariant(ce):
             raise AssertionError(
-                f"Contention invariant violated for {self}: "
-                f"ce={ce}, visibility={self.visibility}, require_ce={self.require_ce}"
+                f"Contention invariant violated for {self}.{action}: "
+                f"ce={ce}, visibility={self.visibility}, require_cv={self.require_cv}"
             )
 
-    def release(self, ce: ContentionVector):
+    def release(self, ce: ContentionVector, action: str):
         pass
 
     def check_invariant(self, ce: ContentionVector) -> bool:
-        effective_ce = ce.min(self.visibility)
-        return effective_ce <= self.require_ce
+        effective_cv = ce.min(self.visibility)
+        return effective_cv <= self.require_cv
 
 
 @dataclass
