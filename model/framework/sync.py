@@ -90,6 +90,20 @@ class LocalIrq(SyncPrimitive):
         cv.local_irq = flags
 
 
+class Preemption(SyncPrimitive):
+    """Adjust local task contention for preemption, allowing negative levels."""
+
+    def enable(self, cv: ContentionVector):
+        cv.local_tasks += 1
+
+    def disable(self, cv: ContentionVector):
+        cv.local_tasks -= 1
+
+
+# Local multitasking expresses task concurrency; Preemption names the mechanism.
+LocalMultiTasks = Preemption
+
+
 class GuardLocalIrq(LocalIrq):
     """Reduce local IRQ contention by one and restore its saved value on exit."""
 

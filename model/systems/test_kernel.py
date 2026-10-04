@@ -1,4 +1,4 @@
-"""Test Kernel Setup"""
+"""Test Kernel Setup and Boot"""
 
 from copy import copy
 
@@ -16,3 +16,18 @@ def test_kernel_setup():
     assert gv.earlycon_driver_table.table == [gv.earlycon_riscv_sbi]
     items = [(item.key, item.val) for item in gv.boot_command_line.items]
     assert items == [("earlycon", "sbi")]
+
+
+def test_kernel_boot():
+    gv.reset()
+    cv = copy(EXCLUSIVE_CV)
+
+    gv.computer.drive(cv, gv.kernel, "setup")
+    gv.computer.drive(cv, gv.kernel, "boot")
+
+    assert (cv.local_irq, cv.local_tasks, cv.remote_irq, cv.remote_tasks) == (
+        1,
+        1,
+        0,
+        0,
+    )

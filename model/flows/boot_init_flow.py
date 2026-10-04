@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from framework.engine import Signal, System, requires_cv
-from framework.sync import ContentionVector, LocalIrq
+from framework.sync import ContentionVector, LocalIrq, LocalMultiTasks
 
 
 @dataclass
@@ -31,6 +31,7 @@ class BootInitFlow(System):
 
     @requires_cv(ContentionVector(zero=True, local_irq=1))
     def yield_current(self, sig: Signal):
+        LocalMultiTasks().enable(sig.engine.cv)
         sig.chain(self, "enter_idle")
 
     @requires_cv(ContentionVector(zero=True, local_irq=1, local_tasks=1))
