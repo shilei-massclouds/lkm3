@@ -20,17 +20,17 @@ class Receiver(System):
         return self.name
 
     def receive(self, sig: Signal):
-        self.environments.append(sig.engine.ce)
+        self.environments.append(sig.engine.cv)
         self.received.append(sig.args["payload"])
 
     def enqueue(self, sig: Signal):
-        self.environments.append(sig.engine.ce)
+        self.environments.append(sig.engine.cv)
         sig.engine.emit(self, "receive", payload=sig.args["payload"])
 
     def relay(self, sig: Signal):
-        self.environments.append(sig.engine.ce)
+        self.environments.append(sig.engine.cv)
         self.drive(
-            sig.engine.ce,
+            sig.engine.cv,
             sig.args["recipient"],
             "enqueue",
             payload=sig.args["payload"],
@@ -38,21 +38,21 @@ class Receiver(System):
 
 
 def test_drive_source_and_nested_events(capsys):
-    ce = ContentionVector.ones()
+    cv = ContentionVector.ones()
     source = Computer()
     relay = Receiver("Relay", require_cv=ContentionVector.ones())
     target = Receiver("Target", require_cv=ContentionVector.ones())
     payload = object()
 
-    source.drive(ce, relay, "relay", recipient=target, payload=payload)
+    source.drive(cv, relay, "relay", recipient=target, payload=payload)
 
     assert len(target.received) == 1
     assert target.received[0] is payload
     assert not relay.received
     assert len(relay.environments) == 1
-    assert relay.environments[0] is ce
+    assert relay.environments[0] is cv
     assert len(target.environments) == 2
-    assert all(env is ce for env in target.environments)
+    assert all(env is cv for env in target.environments)
     assert capsys.readouterr().out.splitlines() == [
         "Computer():",
         "    relay -> Relay",
@@ -64,7 +64,7 @@ def test_drive_source_and_nested_events(capsys):
 
 
 def test_drive_all_source_and_generator(capsys):
-    ce = ContentionVector.ones()
+    cv = ContentionVector.ones()
     source = Computer()
     targets = [
         Receiver("First", require_cv=ContentionVector.ones()),
@@ -72,13 +72,13 @@ def test_drive_all_source_and_generator(capsys):
     ]
     payload = object()
 
-    source.drive_all(ce, (target for target in targets), "receive", payload=payload)
+    source.drive_all(cv, (target for target in targets), "receive", payload=payload)
 
     for target in targets:
         assert len(target.received) == 1
         assert target.received[0] is payload
         assert len(target.environments) == 1
-        assert target.environments[0] is ce
+        assert target.environments[0] is cv
     assert capsys.readouterr().out.splitlines() == [
         "Computer():",
         "    receive -> First",
@@ -89,44 +89,44 @@ def test_drive_all_source_and_generator(capsys):
 
 
 def test_signal_releases_environment_when_action_raises():
-    ce = ContentionVector.ones()
+    cv = ContentionVector.ones()
     error = RuntimeError("action failed")
     calls: list[tuple[str, ContentionVector]] = []
 
     class FailingTarget(System):
-        def acquire(self, ce: ContentionVector, action: str):
-            calls.append(("acquire", ce))
-            ce.local_irq = 0
-            ce.local_tasks = 0
-            ce.remote_irq = 0
-            ce.remote_tasks = 0
-            super().acquire(ce, action)
+        def acquire(self, cv: ContentionVector, action: str):
+            calls.append(("acquire", cv))
+            cv.local_irq = 0
+            cv.local_tasks = 0
+            cv.remote_irq = 0
+            cv.remote_tasks = 0
+            super().acquire(cv, action)
 
         def fail(self, sig: Signal):
-            calls.append(("action", sig.engine.ce))
-            assert sig.engine.ce.local_irq == 0
+            calls.append(("action", sig.engine.cv))
+            assert sig.engine.cv.local_irq == 0
             raise error
 
-        def release(self, ce: ContentionVector, action: str):
-            calls.append(("release", ce))
-            ce.local_irq = 1
-            ce.local_tasks = 1
-            ce.remote_irq = 1
-            ce.remote_tasks = 1
+        def release(self, cv: ContentionVector, action: str):
+            calls.append(("release", cv))
+            cv.local_irq = 1
+            cv.local_tasks = 1
+            cv.remote_irq = 1
+            cv.remote_tasks = 1
 
-    signal = Signal(FailingTarget(), "fail", {}, Engine(ce))
+    signal = Signal(FailingTarget(), "fail", {}, Engine(cv))
 
     with pytest.raises(RuntimeError) as exc_info:
         signal.handle()
 
     assert exc_info.value is error
     assert [phase for phase, _ in calls] == ["acquire", "action", "release"]
-    assert all(env is ce for _, env in calls)
-    assert ce.local_irq == ce.local_tasks == ce.remote_irq == ce.remote_tasks == 1
+    assert all(env is cv for _, env in calls)
+    assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
 
 
 def test_system_defaults_require_exclusive_access():
-    ce = ContentionVector.ones()
+    cv = ContentionVector.ones()
     system = System()
 
     assert system.visibility.local_irq == 1
@@ -137,39 +137,39 @@ def test_system_defaults_require_exclusive_access():
     assert system.require_cv.local_tasks == 0
     assert system.require_cv.remote_irq == 0
     assert system.require_cv.remote_tasks == 0
-    assert not system.check_invariant(ce)
+    assert not system.check_invariant(cv)
 
-    ce.local_irq = 0
-    ce.local_tasks = 0
-    ce.remote_irq = 0
-    ce.remote_tasks = 0
-    assert system.check_invariant(ce)
+    cv.local_irq = 0
+    cv.local_tasks = 0
+    cv.remote_irq = 0
+    cv.remote_tasks = 0
+    assert system.check_invariant(cv)
 
 
 def test_invariant_masks_visibility_and_checks_each_required_domain():
-    ce = ContentionVector.ones()
+    cv = ContentionVector.ones()
     visibility = ContentionVector.zeros()
     visibility.remote_tasks = 1
     system = System(visibility=visibility)
 
-    assert not system.check_invariant(ce)
+    assert not system.check_invariant(cv)
 
     require_cv = ContentionVector.zeros()
     require_cv.remote_tasks = 1
     tolerant = System(visibility=visibility, require_cv=require_cv)
-    assert tolerant.check_invariant(ce)
-    assert not System(require_cv=require_cv).check_invariant(ce)
-    assert System(visibility=ContentionVector.zeros()).check_invariant(ce)
-    assert ce.local_irq == ce.local_tasks == ce.remote_irq == ce.remote_tasks == 1
+    assert tolerant.check_invariant(cv)
+    assert not System(require_cv=require_cv).check_invariant(cv)
+    assert System(visibility=ContentionVector.zeros()).check_invariant(cv)
+    assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
 
 
 def test_drive_stops_before_action_when_invariant_fails():
-    ce = ContentionVector.ones()
+    cv = ContentionVector.ones()
     source = Computer()
     target = Receiver("Target")
 
     with pytest.raises(AssertionError, match="Contention invariant violated"):
-        source.drive(ce, target, "receive", payload=object())
+        source.drive(cv, target, "receive", payload=object())
 
     assert not target.received
     assert not target.environments
@@ -183,13 +183,13 @@ def test_requires_cv_default_controls_signal_dispatch():
         pass
 
     target = SharedReceiver("Shared")
-    ce = ContentionVector(remote_irq=0)
+    cv = ContentionVector(remote_irq=0)
     payload = object()
 
-    Computer().drive(ce, target, "receive", payload=payload)
+    Computer().drive(cv, target, "receive", payload=payload)
 
     assert target.received == [payload]
-    assert target.environments == [ce]
+    assert target.environments == [cv]
     with pytest.raises(AssertionError, match="require_cv="):
         Computer().drive(ContentionVector.ones(), target, "receive", payload=object())
     assert target.received == [payload]
@@ -253,15 +253,15 @@ def test_requires_cv_is_inherited_and_can_be_overridden_by_subclasses():
     class ExclusiveChild(SharedSystem):
         pass
 
-    ce = ContentionVector.ones()
+    cv = ContentionVector.ones()
     plain = PlainChild("plain")
     child = DataclassChild("child", 3)
 
-    assert plain.check_invariant(ce)
+    assert plain.check_invariant(cv)
     assert child.name == "child" and child.count == 3
-    assert child.check_invariant(ce)
-    assert not ExclusiveChild("exclusive").check_invariant(ce)
-    assert SharedSystem("parent").check_invariant(ce)
+    assert child.check_invariant(cv)
+    assert not ExclusiveChild("exclusive").check_invariant(cv)
+    assert SharedSystem("parent").check_invariant(cv)
     child.require_cv.local_irq = 0
     assert plain.require_cv.local_irq == 1
     assert DataclassChild("another", 1).require_cv.local_irq == 1

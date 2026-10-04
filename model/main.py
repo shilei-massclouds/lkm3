@@ -7,9 +7,9 @@ from global_vars import gv
 
 
 def main() -> None:
-    ce = copy(EXCLUSIVE_CV)
-    gv.computer.drive(ce, gv.kernel, "setup")
-    gv.computer.drive(ce, gv.kernel, "boot")
+    cv = copy(EXCLUSIVE_CV)
+    gv.computer.drive(cv, gv.kernel, "setup")
+    gv.computer.drive(cv, gv.kernel, "boot")
 
 
 if __name__ == "__main__":

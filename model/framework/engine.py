@@ -18,11 +18,11 @@ class Signal:
 
     def handle(self):
         action = getattr(self.target, self.action)
-        self.target.acquire(self.engine.ce, self.action)
+        self.target.acquire(self.engine.cv, self.action)
         try:
             action(self)
         finally:
-            self.target.release(self.engine.ce, self.action)
+            self.target.release(self.engine.cv, self.action)
 
     def chain(self, target: System, action: str, **kwargs):
         self.engine.emit(target, action, **kwargs)
@@ -37,36 +37,36 @@ class System:
         default_factory=ContentionVector.zeros, kw_only=True, repr=False
     )
 
-    def drive(self, ce: ContentionVector, target: System, action: str, **kwargs):
+    def drive(self, cv: ContentionVector, target: System, action: str, **kwargs):
         indent = "    " * Engine.depth
         print(f"{indent}{self}:")
 
         Engine.depth += 1
         try:
-            engine = Engine(ce)
+            engine = Engine(cv)
             engine.emit(target, action, **kwargs)
             engine.process()
         finally:
             Engine.depth -= 1
 
     def drive_all(
-        self, ce: ContentionVector, targets: Iterable[System], action: str, **kwargs
+        self, cv: ContentionVector, targets: Iterable[System], action: str, **kwargs
     ):
         for target in targets:
-            self.drive(ce, target, action, **kwargs)
+            self.drive(cv, target, action, **kwargs)
 
-    def acquire(self, ce: ContentionVector, action: str):
-        if not self.check_invariant(ce):
+    def acquire(self, cv: ContentionVector, action: str):
+        if not self.check_invariant(cv):
             raise AssertionError(
                 f"Contention invariant violated for {self}.{action}: "
-                f"ce={ce}, visibility={self.visibility}, require_cv={self.require_cv}"
+                f"cv={cv}, visibility={self.visibility}, require_cv={self.require_cv}"
             )
 
-    def release(self, ce: ContentionVector, action: str):
+    def release(self, cv: ContentionVector, action: str):
         pass
 
-    def check_invariant(self, ce: ContentionVector) -> bool:
-        effective_cv = ce.min(self.visibility)
+    def check_invariant(self, cv: ContentionVector) -> bool:
+        effective_cv = cv.min(self.visibility)
         return effective_cv <= self.require_cv
 
 
@@ -119,7 +119,7 @@ def requires_cv[S: System](
 
 @dataclass
 class Engine:
-    ce: ContentionVector
+    cv: ContentionVector
     depth: ClassVar[int] = 0
     signals: deque[Signal] = field(default_factory=deque)
 

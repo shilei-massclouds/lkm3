@@ -8,6 +8,6 @@ from global_vars import gv
 
 def test_earlycon_riscv_sbi():
     gv.reset()
-    ce = copy(EXCLUSIVE_CV)
-    gv.computer.drive(ce, gv.earlycon_riscv_sbi, "setup", drv="sbi")
+    cv = copy(EXCLUSIVE_CV)
+    gv.computer.drive(cv, gv.earlycon_riscv_sbi, "setup", drv="sbi")
     assert gv.early_console_dev.console.ready

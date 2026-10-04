@@ -15,8 +15,8 @@ class EarlyCon(System):
         from global_vars import gv
 
         drv_name = sig.args.get("drv")
-        self.drive(sig.engine.ce, self.console, "setup", drv=drv_name)
-        self.drive(sig.engine.ce, gv.console_list, "register", con=self.console)
+        self.drive(sig.engine.cv, self.console, "setup", drv=drv_name)
+        self.drive(sig.engine.cv, gv.console_list, "register", con=self.console)
 
 
 @dataclass
@@ -35,7 +35,7 @@ class EarlyConDrvTable(System):
 
     def probe(self, sig: Signal):
         drv = sig.args["drv"]
-        self.drive_all(sig.engine.ce, self.table, "setup", drv=drv)
+        self.drive_all(sig.engine.cv, self.table, "setup", drv=drv)
 
 
 @dataclass
@@ -45,4 +45,4 @@ class EarlyConParam(Param):
 
         if sig.args["key"] == "earlycon" and sig.args["early"]:
             val = sig.args["val"]
-            self.drive(sig.engine.ce, gv.earlycon_driver_table, "probe", drv=val)
+            self.drive(sig.engine.cv, gv.earlycon_driver_table, "probe", drv=val)
