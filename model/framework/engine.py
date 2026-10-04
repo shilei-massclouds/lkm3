@@ -2,13 +2,14 @@ import sys
 from collections import deque
 from collections.abc import Callable, Iterable
 from copy import copy
-from dataclasses import dataclass, field, fields
-from functools import wraps
-from inspect import Parameter, signature
+from dataclasses import dataclass, field
 from os import getenv
-from typing import Any, ClassVar
+from types import FunctionType
+from typing import Any, ClassVar, cast
 
-from framework.sync import ContentionVector
+from framework.sync import EXCLUSIVE_CV, ContentionVector
+
+_REQUIRE_CV_ATTR = "__require_cv__"
 
 
 def env_enabled(name: str) -> bool:
@@ -40,9 +41,18 @@ class System:
     visibility: ContentionVector = field(
         default_factory=ContentionVector.ones, kw_only=True, repr=False
     )
-    require_cv: ContentionVector = field(
-        default_factory=ContentionVector.zeros, kw_only=True, repr=False
-    )
+
+    def resolve_require_cv(self, action: str | None = None) -> ContentionVector:
+        """Copy the method requirement, nearest class declaration, or default."""
+        if action is not None:
+            requirement = getattr(getattr(self, action), _REQUIRE_CV_ATTR, None)
+            if requirement is not None:
+                return copy(requirement)
+        for cls in type(self).__mro__:
+            requirement = cls.__dict__.get(_REQUIRE_CV_ATTR)
+            if requirement is not None:
+                return copy(requirement)
+        return copy(EXCLUSIVE_CV)
 
     def drive(self, cv: ContentionVector, target: System, action: str, **kwargs):
         indent = "    " * Engine.depth
@@ -63,40 +73,50 @@ class System:
             self.drive(cv, target, action, **kwargs)
 
     def acquire(self, cv: ContentionVector, action: str):
-        assert self.check_invariant(cv), self.format_invariant(
+        assert self.check_invariant(cv, action), self.format_invariant(
             cv,
             f"Contention invariant violated for {self}.{action}:",
+            action,
             show_violations=True,
         )
 
     def release(self, cv: ContentionVector, action: str):
         pass
 
-    def check_invariant(self, cv: ContentionVector) -> bool:
+    def check_invariant(self, cv: ContentionVector, action: str | None = None) -> bool:
         effective_cv = cv.min(self.visibility)
+        requirement = self.resolve_require_cv(action)
         if env_enabled("DEBUG"):
             print(
-                self.format_invariant(cv, f"[DEBUG] {self}.check_invariant:"),
+                self.format_invariant(cv, f"[DEBUG] {self}.check_invariant:", action),
                 file=sys.stderr,
             )
-        return effective_cv <= self.require_cv
+        return effective_cv <= requirement
 
-    def violated_domains(self, cv: ContentionVector) -> list[str]:
+    def violated_domains(
+        self, cv: ContentionVector, action: str | None = None
+    ) -> list[str]:
         """List domains whose visible contention exceeds their requirement."""
         effective_cv = cv.min(self.visibility)
+        requirement = self.resolve_require_cv(action)
         return [
             domain
             for domain in ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
-            if getattr(effective_cv, domain) > getattr(self.require_cv, domain)
+            if getattr(effective_cv, domain) > getattr(requirement, domain)
         ]
 
     def format_invariant(
-        self, cv: ContentionVector, header: str, *, show_violations: bool = False
+        self,
+        cv: ContentionVector,
+        header: str,
+        action: str | None = None,
+        *,
+        show_violations: bool = False,
     ) -> str:
         """Format the invariant inputs and optional violations with call indentation."""
         indent = "    " * Engine.depth
         violations = (
-            f"{indent}    violated domains: {', '.join(self.violated_domains(cv))}\n"
+            f"{indent}    violated domains: {', '.join(self.violated_domains(cv, action))}\n"
             if show_violations
             else ""
         )
@@ -105,53 +125,31 @@ class System:
             f"{violations}"
             f"{indent}    cv={cv}\n"
             f"{indent}    visibility={self.visibility}\n"
-            f"{indent}    require_cv={self.require_cv}"
+            f"{indent}    require_cv={self.resolve_require_cv(action)}"
         )
 
 
-def requires_cv[S: System](
-    default: ContentionVector,
-) -> Callable[[type[S]], type[S]]:
-    """Set a System subclass's default requirement; place above @dataclass.
+def requires_cv[T: type[System] | Callable[..., Any]](
+    requirement: ContentionVector,
+) -> Callable[[T], T]:
+    """Declare a copied requirement on a System subclass or instance method.
 
-    Each instance gets its own copy unless require_cv is passed explicitly.
-    The default is also inherited by subclasses, including dataclasses.
+    Return the original object without wrapping constructors or method calls.
+    Method declarations take precedence over class declarations during dispatch.
+    Static methods, class methods, and properties are not supported.
     """
-    if not isinstance(default, ContentionVector):
+    if not isinstance(requirement, ContentionVector):
         raise TypeError("requires_cv expects a ContentionVector")
-    template = copy(default)
+    template = copy(requirement)
 
-    def decorate(cls: type[S]) -> type[S]:
-        if not issubclass(cls, System):
-            raise TypeError("requires_cv can only decorate System subclasses")
-
-        # Copy field metadata so dataclass subclasses inherit the new factory
-        # without changing the parent class's default.
-        class_fields = {item.name: item for item in fields(cls)}
-        requirement = copy(class_fields["require_cv"])
-        requirement.default_factory = lambda: copy(template)
-        class_fields["require_cv"] = requirement
-        cls.__dataclass_fields__ = class_fields
-
-        original_init = cls.__init__
-        parameters = signature(original_init).parameters
-        accepts_requirement = "require_cv" in parameters or any(
-            parameter.kind == Parameter.VAR_KEYWORD for parameter in parameters.values()
-        )
-
-        @wraps(original_init)
-        def init(self: S, *args: Any, **kwargs: Any):
-            requirement = (
-                kwargs.pop("require_cv") if "require_cv" in kwargs else copy(template)
-            )
-            if accepts_requirement:
-                kwargs["require_cv"] = requirement
-            original_init(self, *args, **kwargs)
-            if not accepts_requirement:
-                self.require_cv = requirement
-
-        cls.__init__ = init
-        return cls
+    def decorate(target: T) -> T:
+        if isinstance(target, type):
+            if not issubclass(target, System):
+                raise TypeError("requires_cv can only decorate System subclasses")
+        elif not isinstance(target, FunctionType):
+            raise TypeError("requires_cv expects a System subclass or instance method")
+        setattr(target, _REQUIRE_CV_ATTR, copy(template))
+        return cast(T, target)
 
     return decorate
 

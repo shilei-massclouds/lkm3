@@ -62,8 +62,8 @@ def test_comparison_requires_every_domain_to_satisfy_the_limit():
     assert ContentionVector.zeros() <= left
 
 
-@pytest.mark.parametrize("initial_irq", [0, 1])
-def test_irq_guard_restores_initial_state_without_reverting_other_domains(initial_irq):
+def test_irq_guard_restores_initial_state_without_reverting_other_domains():
+    initial_irq = 1
     cv = ContentionVector(local_irq=initial_irq, remote_irq=0)
 
     with GuardLocalIrq(cv):
@@ -77,8 +77,8 @@ def test_irq_guard_restores_initial_state_without_reverting_other_domains(initia
     assert cv.remote_tasks == 1
 
 
-@pytest.mark.parametrize("initial_irq", [0, 1])
-def test_irq_guard_restores_state_and_propagates_action_error(initial_irq):
+def test_irq_guard_restores_state_and_propagates_action_error():
+    initial_irq = 1
     cv = ContentionVector(local_irq=initial_irq)
     error = RuntimeError("action failed")
 
@@ -98,11 +98,23 @@ def test_nested_irq_guards_restore_the_surrounding_irq_state():
             pytest.raises(RuntimeError, match="inner action failed"),
             GuardLocalIrq(cv),
         ):
-            assert cv.local_irq == 0
+            assert cv.local_irq == -1
             raise RuntimeError("inner action failed")
         assert cv.local_irq == 0
 
     assert cv.local_irq == 1
+
+
+def test_redundant_irq_guards_allow_negative_levels_and_restore_exclusive_state():
+    cv = ContentionVector.zeros()
+
+    with GuardLocalIrq(cv):
+        assert cv.local_irq == -1
+        with GuardLocalIrq(cv):
+            assert cv.local_irq == -2
+        assert cv.local_irq == -1
+
+    assert cv.local_irq == 0
 
 
 @pytest.mark.parametrize("local_tasks, remote_tasks", [(1, 1), (0, 0), (2, 4)])

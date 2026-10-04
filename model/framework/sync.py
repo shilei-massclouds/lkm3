@@ -5,6 +5,12 @@ from typing import Self
 
 
 class ContentionVector:
+    """Signed contention levels, compared independently in each domain.
+
+    Zero represents safety from exclusive access. Negative levels represent
+    redundant protection and are also safe for exclusive requirements.
+    """
+
     local_irq: int
     local_tasks: int
     remote_irq: int
@@ -66,14 +72,16 @@ class SyncPrimitive:
 
 
 class LocalIrq(SyncPrimitive):
+    """Adjust local IRQ contention by one, allowing negative levels."""
+
     def enable(self, cv: ContentionVector):
-        cv.local_irq = 1
+        cv.local_irq += 1
 
     def disable(self, cv: ContentionVector):
-        cv.local_irq = 0
+        cv.local_irq -= 1
 
     def save(self, cv: ContentionVector) -> int:
-        """Save the current IRQ state and disable local IRQs."""
+        """Save local IRQ contention and reduce it by one."""
         flags = cv.local_irq
         self.disable(cv)
         return flags
@@ -83,7 +91,7 @@ class LocalIrq(SyncPrimitive):
 
 
 class GuardLocalIrq(LocalIrq):
-    """Disable local IRQs for a block and restore their previous state on exit."""
+    """Reduce local IRQ contention by one and restore its saved value on exit."""
 
     def __init__(self, cv: ContentionVector):
         self.cv = cv
