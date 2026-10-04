@@ -1,11 +1,13 @@
 """Derive Entry"""
 
-from framework.sync import ContentionVector
+from copy import copy
+
+from framework.sync import EXCLUSIVE_CV
 from global_vars import gv
 
 
 def main() -> None:
-    ce = ContentionVector.ones()
+    ce = copy(EXCLUSIVE_CV)
     gv.computer.drive(ce, gv.kernel, "setup")
     gv.computer.drive(ce, gv.kernel, "boot")
 

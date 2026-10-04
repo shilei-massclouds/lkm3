@@ -67,3 +67,7 @@ class ContentionVector:
 
 class SyncPrimitive:
     pass
+
+
+FREE_CV = ContentionVector.ones()
+EXCLUSIVE_CV = ContentionVector.zeros()

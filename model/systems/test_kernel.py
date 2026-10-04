@@ -1,12 +1,14 @@
 """Test Kernel Setup"""
 
-from framework.sync import ContentionVector
+from copy import copy
+
+from framework.sync import EXCLUSIVE_CV
 from global_vars import gv
 
 
 def test_kernel_setup():
     gv.reset()
-    ce = ContentionVector.ones()
+    ce = copy(EXCLUSIVE_CV)
 
     gv.computer.drive(ce, gv.kernel, "setup")
 
