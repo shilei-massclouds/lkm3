@@ -28,7 +28,8 @@ class ContentionVector:
     def __repr__(self) -> str:
         return (
             f"(local_irq={self.local_irq}, "
-            f"local_tasks={self.local_tasks}, remote_irq={self.remote_irq}, "
+            f"local_tasks={self.local_tasks}, "
+            f"remote_irq={self.remote_irq}, "
             f"remote_tasks={self.remote_tasks})"
         )
 

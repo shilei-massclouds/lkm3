@@ -1,12 +1,19 @@
+import sys
 from collections import deque
 from collections.abc import Callable, Iterable
 from copy import copy
 from dataclasses import dataclass, field, fields
 from functools import wraps
 from inspect import Parameter, signature
+from os import getenv
 from typing import Any, ClassVar
 
 from framework.sync import ContentionVector
+
+
+def env_enabled(name: str) -> bool:
+    """Return whether the named environment variable enables an option."""
+    return getenv(name, "").strip().lower() in {"y", "1", "true", "yes", "on"}
 
 
 @dataclass
@@ -56,18 +63,31 @@ class System:
             self.drive(cv, target, action, **kwargs)
 
     def acquire(self, cv: ContentionVector, action: str):
-        if not self.check_invariant(cv):
-            raise AssertionError(
-                f"Contention invariant violated for {self}.{action}: "
-                f"cv={cv}, visibility={self.visibility}, require_cv={self.require_cv}"
-            )
+        assert self.check_invariant(cv), self.format_invariant(
+            cv, f"Contention invariant violated for {self}.{action}:"
+        )
 
     def release(self, cv: ContentionVector, action: str):
         pass
 
     def check_invariant(self, cv: ContentionVector) -> bool:
         effective_cv = cv.min(self.visibility)
+        if env_enabled("DEBUG"):
+            print(
+                self.format_invariant(cv, f"[DEBUG] {self}.check_invariant:"),
+                file=sys.stderr,
+            )
         return effective_cv <= self.require_cv
+
+    def format_invariant(self, cv: ContentionVector, header: str) -> str:
+        """Format the three invariant inputs with a header and call indentation."""
+        indent = "    " * Engine.depth
+        return (
+            f"{indent}{header}\n"
+            f"{indent}    cv={cv}\n"
+            f"{indent}    visibility={self.visibility}\n"
+            f"{indent}    require_cv={self.require_cv}"
+        )
 
 
 def requires_cv[S: System](

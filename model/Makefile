@@ -1,7 +1,9 @@
+MAKEFLAGS += --no-print-directory
 PYTHON ?= python3
 RUFF ?= ruff
 PYRIGHT ?= pyright
-MAKEFLAGS += --no-print-directory
+DEBUG ?= n
+export DEBUG
 
 run:
 	@$(PYTHON) main.py
