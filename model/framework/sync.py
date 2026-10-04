@@ -102,5 +102,46 @@ class GuardLocalIrq(LocalIrq):
         self.restore(self.cv, self._flags)
 
 
+class GuardYieldLock(SyncPrimitive):
+    """Reduce task contention by one for a block and undo it on exit."""
+
+    def __init__(self, cv: ContentionVector):
+        self.cv = cv
+
+    def __enter__(self) -> Self:
+        self.cv.local_tasks -= 1
+        self.cv.remote_tasks -= 1
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.cv.local_tasks += 1
+        self.cv.remote_tasks += 1
+
+
+class GuardYieldTryLock(GuardYieldLock):
+    """Reduce task and IRQ contention by one for a block and undo it on exit."""
+
+    def __enter__(self) -> Self:
+        super().__enter__()
+        self.cv.local_irq -= 1
+        self.cv.remote_irq -= 1
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.cv.local_irq += 1
+        self.cv.remote_irq += 1
+        super().__exit__(exc_type, exc_value, traceback)
+
+
 FREE_CV = ContentionVector.ones()
 EXCLUSIVE_CV = ContentionVector.zeros()

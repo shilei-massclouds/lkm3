@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 from framework.engine import Signal, System, requires_cv
-from framework.sync import FREE_CV, GuardLocalIrq
+from framework.sync import FREE_CV, GuardLocalIrq, GuardYieldTryLock
 
 
 @dataclass
@@ -80,5 +80,6 @@ class Io(System):
             self.drive(sig.engine.cv, gv.prb, "store", msg=sig.args["msg"])
 
         # preempt_disable
-        self.drive(sig.engine.cv, gv.console_list, "flush_all")
+        with GuardYieldTryLock(sig.engine.cv):
+            self.drive(sig.engine.cv, gv.console_list, "flush_all")
         # preempt_enable

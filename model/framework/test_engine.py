@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from framework.engine import Engine, Signal, System, requires_cv
-from framework.sync import ContentionVector
+from framework.sync import ContentionVector, GuardYieldLock, GuardYieldTryLock
 from kernel.params import CmdItem
 from systems.computer import Computer
 
@@ -174,6 +174,28 @@ def test_drive_stops_before_action_when_invariant_fails():
     assert not target.received
     assert not target.environments
     assert Engine.depth == 0
+
+
+def test_yield_try_lock_allows_exclusive_dispatch_when_irq_contention_remains():
+    cv = ContentionVector.ones()
+    target = Receiver("Target")
+    payload = object()
+    source = Computer()
+
+    with GuardYieldLock(cv):
+        with pytest.raises(
+            AssertionError, match="violated domains: local_irq, remote_irq"
+        ):
+            source.drive(cv, target, "receive", payload=payload)
+        assert not target.received
+        with GuardYieldTryLock(cv):
+            source.drive(cv, target, "receive", payload=payload)
+        assert (cv.local_irq, cv.remote_irq) == (1, 1)
+        assert (cv.local_tasks, cv.remote_tasks) == (0, 0)
+
+    assert target.received == [payload]
+    assert target.environments[0] is cv
+    assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
 
 
 def test_requires_cv_default_controls_signal_dispatch():
