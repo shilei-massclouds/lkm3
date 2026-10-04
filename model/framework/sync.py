@@ -1,12 +1,14 @@
 """Contention Utilities"""
 
+from types import TracebackType
+from typing import Self
+
 
 class ContentionVector:
     local_irq: int
     local_tasks: int
     remote_irq: int
     remote_tasks: int
-    _remote_limit: int
 
     def __init__(
         self,
@@ -22,11 +24,10 @@ class ContentionVector:
         self.local_tasks = default if local_tasks is None else local_tasks
         self.remote_irq = default if remote_irq is None else remote_irq
         self.remote_tasks = default if remote_tasks is None else remote_tasks
-        self._remote_limit = default
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
-            f"ContentionVector(local_irq={self.local_irq}, "
+            f"(local_irq={self.local_irq}, "
             f"local_tasks={self.local_tasks}, remote_irq={self.remote_irq}, "
             f"remote_tasks={self.remote_tasks})"
         )
@@ -69,6 +70,35 @@ class LocalIrq(SyncPrimitive):
 
     def disable(self, cv: ContentionVector):
         cv.local_irq = 0
+
+    def save(self, cv: ContentionVector) -> int:
+        """Save the current IRQ state and disable local IRQs."""
+        flags = cv.local_irq
+        self.disable(cv)
+        return flags
+
+    def restore(self, cv: ContentionVector, flags: int):
+        cv.local_irq = flags
+
+
+class GuardLocalIrq(LocalIrq):
+    """Disable local IRQs for a block and restore their previous state on exit."""
+
+    def __init__(self, cv: ContentionVector):
+        self.cv = cv
+        self._flags: int
+
+    def __enter__(self) -> Self:
+        self._flags = self.save(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.restore(self.cv, self._flags)
 
 
 FREE_CV = ContentionVector.ones()

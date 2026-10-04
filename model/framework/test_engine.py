@@ -229,7 +229,6 @@ def test_requires_cv_copies_defaults_without_changing_other_classes():
     assert second.require_cv.local_tasks == 0
     assert second.require_cv.remote_irq == 0
     assert second.require_cv.remote_tasks == 1
-    assert second.require_cv._remote_limit == 0
     assert SharedSystem().require_cv.remote_tasks == 1
     assert System().require_cv.local_irq == 0
     assert Receiver("Exclusive").require_cv.remote_tasks == 0
