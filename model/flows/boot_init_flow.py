@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from framework.engine import Signal, System, requires_cv
-from framework.sync import ContentionVector, LocalIrq, LocalMultiTasks
+from framework.sync import ContentionVector, LocalIrq, LocalMultiTasks, Preemption
 
 
 @dataclass
@@ -36,4 +36,9 @@ class BootInitFlow(System):
 
     @requires_cv(ContentionVector(zero=True, local_irq=1, local_tasks=1))
     def enter_idle(self, sig: Signal):
+        Preemption().disable(sig.engine.cv)
+        self.drive(sig.engine.cv, self, "do_idle")
+
+    @requires_cv(ContentionVector(local_tasks=0))
+    def do_idle(self, sig: Signal):
         pass

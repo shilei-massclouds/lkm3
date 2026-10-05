@@ -27,7 +27,7 @@ def test_kernel_boot():
 
     assert (cv.local_irq, cv.local_tasks, cv.remote_irq, cv.remote_tasks) == (
         1,
-        1,
+        0,
         0,
         0,
     )
