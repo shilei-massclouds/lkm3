@@ -13,21 +13,17 @@ class Kernel(System):
     def setup(self, sig: Signal):
         from global_vars import gv
 
+        self.drive(sig.env, gv.kernel_param_table, "register", param=gv.earlycon_param)
         self.drive(
-            sig.engine.cv, gv.kernel_param_table, "register", param=gv.earlycon_param
-        )
-        self.drive(
-            sig.engine.cv,
+            sig.env,
             gv.earlycon_driver_table,
             "register",
             drv=gv.earlycon_riscv_sbi,
         )
 
-        self.drive(
-            sig.engine.cv, gv.boot_command_line, "add", key="earlycon", val="sbi"
-        )
+        self.drive(sig.env, gv.boot_command_line, "add", key="earlycon", val="sbi")
 
     def boot(self, sig: Signal):
         from global_vars import gv
 
-        self.drive(sig.engine.cv, gv.boot_init_flow, "arch_boot")
+        gv.boot_init_task.start()

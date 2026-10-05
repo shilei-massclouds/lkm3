@@ -23,9 +23,7 @@ class ParamTable(System):
         key = sig.args["key"]
         val = sig.args["val"]
         early = sig.args["early"]
-        self.drive_all(
-            sig.engine.cv, self.table, "parse", key=key, val=val, early=early
-        )
+        self.drive_all(sig.env, self.table, "parse", key=key, val=val, early=early)
 
 
 @dataclass(init=False)
@@ -43,7 +41,7 @@ class CmdItem(System):
 
         early = sig.args["early"]
         self.drive(
-            sig.engine.cv,
+            sig.env,
             gv.kernel_param_table,
             "parse",
             key=self.key,
@@ -62,4 +60,4 @@ class CmdLine(System):
 
     def parse(self, sig: Signal):
         early = sig.args["early"]
-        self.drive_all(sig.engine.cv, self.items, "parse", early=early)
+        self.drive_all(sig.env, self.items, "parse", early=early)

@@ -1,11 +1,12 @@
 """Test Signal Sources and Dispatch"""
 
+from collections import deque
 from dataclasses import dataclass, field, fields
 from inspect import signature
 
 import pytest
 
-from framework.engine import Engine, Signal, System, requires_cv
+from framework.engine import Signal, System, TaskLocalEnv, requires_cv
 from framework.sync import (
     EXCLUSIVE_CV,
     FREE_CV,
@@ -27,17 +28,17 @@ class Receiver(System):
         return self.name
 
     def receive(self, sig: Signal):
-        self.environments.append(sig.engine.cv)
+        self.environments.append(sig.env.cv)
         self.received.append(sig.args["payload"])
 
     def enqueue(self, sig: Signal):
-        self.environments.append(sig.engine.cv)
-        sig.engine.emit(self, "receive", payload=sig.args["payload"])
+        self.environments.append(sig.env.cv)
+        sig.chain(self, "receive", payload=sig.args["payload"])
 
     def relay(self, sig: Signal):
-        self.environments.append(sig.engine.cv)
+        self.environments.append(sig.env.cv)
         self.drive(
-            sig.engine.cv,
+            sig.env,
             sig.args["recipient"],
             "enqueue",
             payload=sig.args["payload"],
@@ -51,12 +52,13 @@ class SharedReceiver(Receiver):
 
 def test_drive_source_and_nested_events(capsys):
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     source = Computer()
     relay = SharedReceiver("Relay")
     target = SharedReceiver("Target")
     payload = object()
 
-    source.drive(cv, relay, "relay", recipient=target, payload=payload)
+    source.drive(env, relay, "relay", recipient=target, payload=payload)
 
     assert len(target.received) == 1
     assert target.received[0] is payload
@@ -72,11 +74,12 @@ def test_drive_source_and_nested_events(capsys):
         "        enqueue -> Target",
         "        receive -> Target",
     ]
-    assert Engine.depth == 0
+    assert env.depth == 0
 
 
 def test_drive_all_source_and_generator(capsys):
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     source = Computer()
     targets = [
         SharedReceiver("First"),
@@ -84,7 +87,7 @@ def test_drive_all_source_and_generator(capsys):
     ]
     payload = object()
 
-    source.drive_all(cv, (target for target in targets), "receive", payload=payload)
+    source.drive_all(env, (target for target in targets), "receive", payload=payload)
 
     for target in targets:
         assert len(target.received) == 1
@@ -97,36 +100,39 @@ def test_drive_all_source_and_generator(capsys):
         "Computer():",
         "    receive -> Second",
     ]
-    assert Engine.depth == 0
+    assert env.depth == 0
 
 
 def test_signal_releases_environment_when_action_raises():
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     error = RuntimeError("action failed")
     calls: list[tuple[str, ContentionVector]] = []
 
     class FailingTarget(System):
-        def acquire(self, cv: ContentionVector, action: str):
+        def acquire(self, env: TaskLocalEnv, action: str):
+            cv = env.cv
             calls.append(("acquire", cv))
             cv.local_irq = 0
             cv.local_tasks = 0
             cv.remote_irq = 0
             cv.remote_tasks = 0
-            super().acquire(cv, action)
+            super().acquire(env, action)
 
         def fail(self, sig: Signal):
-            calls.append(("action", sig.engine.cv))
-            assert sig.engine.cv.local_irq == 0
+            calls.append(("action", sig.env.cv))
+            assert sig.env.cv.local_irq == 0
             raise error
 
-        def release(self, cv: ContentionVector, action: str):
+        def release(self, env: TaskLocalEnv, action: str):
+            cv = env.cv
             calls.append(("release", cv))
             cv.local_irq = 1
             cv.local_tasks = 1
             cv.remote_irq = 1
             cv.remote_tasks = 1
 
-    signal = Signal(FailingTarget(), "fail", {}, Engine(cv))
+    signal = Signal(FailingTarget(), "fail", {}, env, deque())
 
     with pytest.raises(RuntimeError) as exc_info:
         signal.handle()
@@ -139,6 +145,7 @@ def test_signal_releases_environment_when_action_raises():
 
 def test_system_defaults_require_exclusive_access():
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     system = System()
 
     assert system.visibility.local_irq == 1
@@ -155,13 +162,13 @@ def test_system_defaults_require_exclusive_access():
     assert not hasattr(system, "require_cv")
     assert "require_cv" not in signature(System).parameters
     assert "require_cv" not in {item.name for item in fields(System)}
-    assert not system.check_invariant(cv)
+    assert not system.check_invariant(env)
 
     cv.local_irq = 0
     cv.local_tasks = 0
     cv.remote_irq = 0
     cv.remote_tasks = 0
-    assert system.check_invariant(cv)
+    assert system.check_invariant(env)
 
 
 @pytest.mark.parametrize(
@@ -172,12 +179,13 @@ def test_system_defaults_require_exclusive_access():
     ],
 )
 def test_redundant_protection_allows_exclusive_dispatch(cv):
+    env = TaskLocalEnv(cv)
     target = Receiver("Protected")
     payload = object()
 
-    assert target.check_invariant(cv, "receive")
-    assert target.violated_domains(cv, "receive") == []
-    Computer().drive(cv, target, "receive", payload=payload)
+    assert target.check_invariant(env, "receive")
+    assert target.violated_domains(env, "receive") == []
+    Computer().drive(env, target, "receive", payload=payload)
 
     assert target.received == [payload]
 
@@ -187,24 +195,26 @@ def test_redundant_protection_allows_exclusive_dispatch(cv):
 )
 def test_negative_contention_cannot_offset_a_positive_domain(domain):
     cv = ContentionVector(local_irq=-1, local_tasks=-1, remote_irq=-1, remote_tasks=-1)
+    env = TaskLocalEnv(cv)
     setattr(cv, domain, 1)
     target = Receiver("Target")
 
-    assert not target.check_invariant(cv, "receive")
-    assert target.violated_domains(cv, "receive") == [domain]
+    assert not target.check_invariant(env, "receive")
+    assert target.violated_domains(env, "receive") == [domain]
     with pytest.raises(AssertionError, match=f"violated domains: {domain}"):
-        Computer().drive(cv, target, "receive", payload=object())
+        Computer().drive(env, target, "receive", payload=object())
 
     assert not target.received
 
 
 def test_invariant_masks_visibility_and_checks_each_required_domain():
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     visibility = ContentionVector.zeros()
     visibility.remote_tasks = 1
     system = System(visibility=visibility)
 
-    assert not system.check_invariant(cv)
+    assert not system.check_invariant(env)
 
     @requires_cv(ContentionVector(zero=True, remote_tasks=1))
     class TaskTolerant(System):
@@ -212,27 +222,29 @@ def test_invariant_masks_visibility_and_checks_each_required_domain():
 
     tolerant = TaskTolerant(visibility=visibility)
     assert tolerant.visibility is visibility
-    assert tolerant.check_invariant(cv)
-    assert not TaskTolerant().check_invariant(cv)
-    assert System(visibility=ContentionVector.zeros()).check_invariant(cv)
+    assert tolerant.check_invariant(env)
+    assert not TaskTolerant().check_invariant(env)
+    assert System(visibility=ContentionVector.zeros()).check_invariant(env)
     assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
 
 
 def test_drive_stops_before_action_when_invariant_fails():
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     source = Computer()
     target = Receiver("Target")
 
     with pytest.raises(AssertionError, match="Contention invariant violated"):
-        source.drive(cv, target, "receive", payload=object())
+        source.drive(env, target, "receive", payload=object())
 
     assert not target.received
     assert not target.environments
-    assert Engine.depth == 0
+    assert env.depth == 0
 
 
 def test_yield_try_lock_allows_exclusive_dispatch_when_irq_contention_remains():
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     target = Receiver("Target")
     payload = object()
     source = Computer()
@@ -241,10 +253,10 @@ def test_yield_try_lock_allows_exclusive_dispatch_when_irq_contention_remains():
         with pytest.raises(
             AssertionError, match="violated domains: local_irq, remote_irq"
         ):
-            source.drive(cv, target, "receive", payload=payload)
+            source.drive(env, target, "receive", payload=payload)
         assert not target.received
         with GuardYieldTryLock(cv):
-            source.drive(cv, target, "receive", payload=payload)
+            source.drive(env, target, "receive", payload=payload)
         assert (cv.local_irq, cv.remote_irq) == (1, 1)
         assert (cv.local_tasks, cv.remote_tasks) == (0, 0)
 
@@ -261,14 +273,17 @@ def test_requires_cv_class_declaration_controls_signal_dispatch():
 
     target = SharedReceiver("Shared")
     cv = ContentionVector(remote_irq=0)
+    env = TaskLocalEnv(cv)
     payload = object()
 
-    Computer().drive(cv, target, "receive", payload=payload)
+    Computer().drive(env, target, "receive", payload=payload)
 
     assert target.received == [payload]
     assert target.environments == [cv]
     with pytest.raises(AssertionError, match="require_cv="):
-        Computer().drive(ContentionVector.ones(), target, "receive", payload=object())
+        Computer().drive(
+            TaskLocalEnv(ContentionVector.ones()), target, "receive", payload=object()
+        )
     assert target.received == [payload]
 
 
@@ -310,7 +325,8 @@ def test_requires_cv_copies_declarations_and_resolved_requirements(declaration):
     assert Receiver("Exclusive").resolve_require_cv("receive").remote_tasks == 0
 
     cv = ContentionVector(zero=True, local_irq=1, remote_tasks=1)
-    Computer().drive(cv, first, "receive", payload="copied requirement")
+    env = TaskLocalEnv(cv)
+    Computer().drive(env, first, "receive", payload="copied requirement")
     assert first.received == ["copied requirement"]
 
 
@@ -333,14 +349,15 @@ def test_requires_cv_is_inherited_and_can_be_overridden_by_subclasses():
         pass
 
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     plain = PlainChild("plain")
     child = DataclassChild("child", 3)
 
-    assert plain.check_invariant(cv)
+    assert plain.check_invariant(env)
     assert child.name == "child" and child.count == 3
-    assert child.check_invariant(cv)
-    assert not ExclusiveChild("exclusive").check_invariant(cv)
-    assert SharedSystem("parent").check_invariant(cv)
+    assert child.check_invariant(env)
+    assert not ExclusiveChild("exclusive").check_invariant(env)
+    assert SharedSystem("parent").check_invariant(env)
     assert plain.resolve_require_cv().local_irq == 1
     assert DataclassChild("another", 1).resolve_require_cv().local_irq == 1
 
@@ -378,13 +395,16 @@ def test_class_declarations_follow_mro_without_inherited_attribute_shortcuts():
         pass
 
     cv = ContentionVector.ones()
-    assert not Left().check_invariant(cv)
-    assert Diamond().check_invariant(cv)
-    assert ReverseDiamond().check_invariant(cv)
-    assert not LeftPriority().check_invariant(cv)
-    assert RightPriority().check_invariant(cv)
-    assert not RestrictedDiamond().check_invariant(cv)
-    assert RestrictedDiamond().check_invariant(ContentionVector(local_irq=0))
+    env = TaskLocalEnv(cv)
+    assert not Left().check_invariant(env)
+    assert Diamond().check_invariant(env)
+    assert ReverseDiamond().check_invariant(env)
+    assert not LeftPriority().check_invariant(env)
+    assert RightPriority().check_invariant(env)
+    assert not RestrictedDiamond().check_invariant(env)
+    assert RestrictedDiamond().check_invariant(
+        TaskLocalEnv(ContentionVector(local_irq=0))
+    )
 
 
 def test_requires_cv_supports_custom_initializers():
@@ -397,8 +417,10 @@ def test_requires_cv_supports_custom_initializers():
     assert SharedItem.__init__ is CmdItem.__init__
     assert signature(SharedItem) == signature(CmdItem)
     assert item.key == "earlycon" and item.val == "sbi"
-    assert item.check_invariant(ContentionVector.ones())
-    assert not CmdItem("earlycon", "sbi").check_invariant(ContentionVector.ones())
+    assert item.check_invariant(TaskLocalEnv(ContentionVector.ones()))
+    assert not CmdItem("earlycon", "sbi").check_invariant(
+        TaskLocalEnv(ContentionVector.ones())
+    )
 
 
 def test_class_decorator_preserves_custom_constructor_and_dataclass_metadata():
@@ -425,7 +447,7 @@ def test_class_decorator_preserves_custom_constructor_and_dataclass_metadata():
     assert target.options == {"setting": 3}
     assert target.visibility is visibility
     assert not hasattr(target, "require_cv")
-    assert target.check_invariant(ContentionVector.ones())
+    assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()))
 
 
 def test_class_declaration_also_works_below_dataclass():
@@ -436,7 +458,7 @@ def test_class_declaration_also_works_below_dataclass():
 
     target = SharedSystem("shared")
     assert target.name == "shared"
-    assert target.check_invariant(ContentionVector.ones())
+    assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()))
     assert "require_cv" not in signature(SharedSystem).parameters
 
 
@@ -455,16 +477,17 @@ def test_method_declarations_can_tighten_or_relax_class_requirements(
 
     target = MethodReceiver("Method")
     cv = ContentionVector.ones()
-    assert target.check_invariant(cv, "receive") is allowed
-    assert target.check_invariant(cv) is not allowed
-    assert target.check_invariant(cv, "enqueue") is not allowed
+    env = TaskLocalEnv(cv)
+    assert target.check_invariant(env, "receive") is allowed
+    assert target.check_invariant(env) is not allowed
+    assert target.check_invariant(env, "enqueue") is not allowed
 
     if allowed:
-        Computer().drive(cv, target, "receive", payload="allowed")
+        Computer().drive(env, target, "receive", payload="allowed")
         assert target.received == ["allowed"]
     else:
         with pytest.raises(AssertionError, match="Contention invariant violated"):
-            Computer().drive(cv, target, "receive", payload="blocked")
+            Computer().drive(env, target, "receive", payload="blocked")
         assert not target.received
 
 
@@ -488,22 +511,26 @@ def test_inherited_methods_keep_declarations_and_overrides_fall_back_to_class():
             super().receive(sig)
 
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     parent = Parent("Parent")
     child = Child("Child")
     override = Override("Override")
     redeclared = Redeclared("Redeclared")
 
-    assert not parent.check_invariant(cv)
-    assert not child.check_invariant(cv)
+    assert not parent.check_invariant(env)
+    assert not child.check_invariant(env)
     for target in (parent, child, redeclared):
-        Computer().drive(cv, target, "receive", payload="inherited")
+        Computer().drive(env, target, "receive", payload="inherited")
         assert target.received == ["inherited"]
 
     with pytest.raises(AssertionError, match="violated domains: local_irq"):
-        Computer().drive(cv, override, "receive", payload="blocked")
+        Computer().drive(env, override, "receive", payload="blocked")
     assert not override.received
     Computer().drive(
-        ContentionVector(local_irq=0), override, "receive", payload="class fallback"
+        TaskLocalEnv(ContentionVector(local_irq=0)),
+        override,
+        "receive",
+        payload="class fallback",
     )
     assert override.received == ["class fallback"]
 
@@ -533,13 +560,17 @@ def test_multiple_inheritance_uses_the_actual_method_declaration():
     left = LeftFirst("Left")
     right = RightFirst("Right")
     cv = ContentionVector.ones()
-    Computer().drive(cv, left, "receive", payload="class fallback")
+    env = TaskLocalEnv(cv)
+    Computer().drive(env, left, "receive", payload="class fallback")
     assert left.received == ["class fallback"]
     with pytest.raises(AssertionError, match="violated domains: remote_irq"):
-        Computer().drive(cv, right, "receive", payload="blocked")
+        Computer().drive(env, right, "receive", payload="blocked")
     assert not right.received
     Computer().drive(
-        ContentionVector(remote_irq=0), right, "receive", payload="method declaration"
+        TaskLocalEnv(ContentionVector(remote_irq=0)),
+        right,
+        "receive",
+        payload="method declaration",
     )
     assert right.received == ["method declaration"]
 
@@ -558,7 +589,9 @@ def test_method_decorator_preserves_function_and_direct_calls_skip_checks():
         receive = decorated
 
     target = MethodReceiver("Direct")
-    signal = Signal(target, "receive", {"payload": "direct"}, Engine(FREE_CV))
+    signal = Signal(
+        target, "receive", {"payload": "direct"}, TaskLocalEnv(FREE_CV), deque()
+    )
     target.receive(signal)
     assert target.received == ["direct"]
 
@@ -592,9 +625,10 @@ def test_diagnostics_report_the_selected_requirement(declaration, monkeypatch, c
             domains = ["remote_tasks"]
 
     cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
     monkeypatch.setenv("DEBUG", "y")
     with pytest.raises(AssertionError) as exc_info:
-        Computer().drive(cv, target, action, payload="blocked")
+        Computer().drive(env, target, action, payload="blocked")
 
     assert capsys.readouterr().err.splitlines() == [
         "    [DEBUG] Target.check_invariant:",
@@ -609,16 +643,93 @@ def test_diagnostics_report_the_selected_requirement(declaration, monkeypatch, c
         f"        visibility={target.visibility}",
         f"        require_cv={requirement}",
     ]
-    assert target.violated_domains(cv, action) == domains
+    assert target.violated_domains(env, action) == domains
     assert not target.received
     assert not target.environments
-    assert Engine.depth == 0
+    assert env.depth == 0
 
     class_requirement = (
         EXCLUSIVE_CV if declaration == "default" else ContentionVector(remote_tasks=0)
     )
     class_domains = domains if declaration == "default" else ["remote_tasks"]
-    assert target.violated_domains(cv) == class_domains
-    formatted = target.format_invariant(cv, "Inputs:", show_violations=True)
+    assert target.violated_domains(env) == class_domains
+    formatted = target.format_invariant(env, "Inputs:", show_violations=True)
     assert f"require_cv={class_requirement}" in formatted
     assert f"violated domains: {', '.join(class_domains)}" in formatted
+
+
+def test_nested_drives_finish_before_their_callers_pending_signals():
+    events: list[str] = []
+    env = TaskLocalEnv()
+
+    class Nested(System):
+        def outer(self, sig: Signal):
+            events.append("outer start")
+            sig.chain(self, "record", event="outer next")
+            self.drive(sig.env, self, "inner", outer=sig)
+            events.append("outer resumed")
+
+        def inner(self, sig: Signal):
+            events.append("inner start")
+            outer = sig.args["outer"]
+            assert sig.queue is not outer.queue
+            assert sig.env.signal_queues == [outer.queue, sig.queue]
+            # Chaining from an outer signal still belongs to the outer invocation.
+            outer.chain(self, "record", event="outer late")
+            sig.chain(self, "record", event="inner next")
+
+        def record(self, sig: Signal):
+            events.append(sig.args["event"])
+
+    target = Nested()
+    System().drive(env, target, "outer")
+
+    assert events == [
+        "outer start",
+        "inner start",
+        "inner next",
+        "outer resumed",
+        "outer next",
+        "outer late",
+    ]
+    assert env.depth == 0 and env.signal_queues == []
+
+
+@pytest.mark.parametrize("caught", [False, True])
+def test_nested_failure_restores_surrounding_queue_stack_and_depth(caught):
+    parent_queue: deque[Signal] = deque()
+    env = TaskLocalEnv(depth=3, signal_queues=[parent_queue])
+    events: list[str] = []
+    error = RuntimeError("inner failed")
+
+    class Nested(System):
+        def outer(self, sig: Signal):
+            sig.chain(self, "record", event="outer next")
+            queue = sig.queue
+            try:
+                self.drive(sig.env, self, "inner")
+            except RuntimeError:
+                assert sig.env.depth == 4
+                assert sig.env.signal_queues == [parent_queue, queue]
+                if not caught:
+                    raise
+                events.append("caught")
+
+        def inner(self, sig: Signal):
+            sig.chain(self, "record", event="abandoned")
+            raise error
+
+        def record(self, sig: Signal):
+            events.append(sig.args["event"])
+
+    target = Nested()
+    if caught:
+        System().drive(env, target, "outer")
+        assert events == ["caught", "outer next"]
+    else:
+        with pytest.raises(RuntimeError) as exc_info:
+            System().drive(env, target, "outer")
+        assert exc_info.value is error
+        assert events == []
+    assert env.depth == 3
+    assert env.signal_queues == [parent_queue]
