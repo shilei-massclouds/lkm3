@@ -100,8 +100,11 @@ class Preemption(SyncPrimitive):
         cv.local_tasks -= 1
 
 
-# Local multitasking expresses task concurrency; Preemption names the mechanism.
-LocalMultiTasks = Preemption
+class LocalMultiTasks(SyncPrimitive):
+    """Model the one-way transition from a single task to local multitasking."""
+
+    def enable(self, cv: ContentionVector):
+        cv.local_tasks += 1
 
 
 class GuardLocalIrq(LocalIrq):
