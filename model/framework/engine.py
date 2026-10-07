@@ -15,10 +15,6 @@ if TYPE_CHECKING:
 _REQUIRE_CV_ATTR = "__require_cv__"
 
 
-class DerivationStopped(AssertionError):
-    """Stop at an explicit modeling boundary, distinct from an invariant failure."""
-
-
 def env_enabled(name: str) -> bool:
     """Return whether the named environment variable enables an option."""
     return getenv(name, "").strip().lower() in {"y", "1", "true", "yes", "on"}
@@ -165,17 +161,28 @@ def requires_cv[T: type[System] | Callable[..., Any]](
     Method declarations take precedence over class declarations during dispatch.
     Static methods, class methods, and properties are not supported.
     """
-    if not isinstance(requirement, ContentionVector):
-        raise TypeError("requires_cv expects a ContentionVector")
+    assert isinstance(requirement, ContentionVector), (
+        "requires_cv expects a ContentionVector"
+    )
     template = copy(requirement)
 
     def decorate(target: T) -> T:
         if isinstance(target, type):
-            if not issubclass(target, System):
-                raise TypeError("requires_cv can only decorate System subclasses")
-        elif not isinstance(target, FunctionType):
-            raise TypeError("requires_cv expects a System subclass or instance method")
+            assert issubclass(target, System), (
+                "requires_cv can only decorate System subclasses"
+            )
+        else:
+            assert isinstance(target, FunctionType), (
+                "requires_cv expects a System subclass or instance method"
+            )
         setattr(target, _REQUIRE_CV_ATTR, copy(template))
         return cast(T, target)
 
     return decorate
+
+
+def terminate(msg: str):
+    import sys
+
+    print(msg)
+    sys.exit(0)

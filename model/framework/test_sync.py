@@ -77,16 +77,14 @@ def test_irq_guard_restores_initial_state_without_reverting_other_domains():
     assert cv.remote_tasks == 1
 
 
-def test_irq_guard_restores_state_and_propagates_action_error():
+def test_irq_guard_restores_state_and_propagates_action_assertion():
     initial_irq = 1
     cv = ContentionVector(local_irq=initial_irq)
-    error = RuntimeError("action failed")
 
-    with pytest.raises(RuntimeError) as exc_info, GuardLocalIrq(cv):
+    with pytest.raises(AssertionError, match="action failed"), GuardLocalIrq(cv):
         assert cv.local_irq == 0
-        raise error
+        assert False, "action failed"
 
-    assert exc_info.value is error
     assert cv.local_irq == initial_irq
 
 
@@ -95,11 +93,11 @@ def test_nested_irq_guards_restore_the_surrounding_irq_state():
 
     with GuardLocalIrq(cv):
         with (
-            pytest.raises(RuntimeError, match="inner action failed"),
+            pytest.raises(AssertionError, match="inner action failed"),
             GuardLocalIrq(cv),
         ):
             assert cv.local_irq == -1
-            raise RuntimeError("inner action failed")
+            assert False, "inner action failed"
         assert cv.local_irq == 0
 
     assert cv.local_irq == 1
@@ -139,16 +137,14 @@ def test_nested_yield_lock_guards_restore_task_contention(local_tasks, remote_ta
 
 
 @pytest.mark.parametrize("guard_type", [GuardYieldLock, GuardYieldTryLock])
-def test_yield_guard_restores_on_error_without_reverting_body_changes(guard_type):
+def test_yield_guard_restores_on_assertion_without_reverting_body_changes(guard_type):
     cv = ContentionVector.ones()
-    error = RuntimeError("action failed")
 
-    with pytest.raises(RuntimeError) as exc_info, guard_type(cv):
+    with pytest.raises(AssertionError, match="action failed"), guard_type(cv):
         cv.remote_tasks += 2
         cv.local_irq -= 1
-        raise error
+        assert False, "action failed"
 
-    assert exc_info.value is error
     assert (cv.local_tasks, cv.remote_tasks) == (1, 3)
     assert (cv.local_irq, cv.remote_irq) == (0, 1)
 

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from flows.task_flow import TaskFlow
-from framework.engine import DerivationStopped, Signal, requires_cv
+from framework.engine import Signal, requires_cv
 from framework.sync import ContentionVector
 
 
@@ -20,4 +20,6 @@ class KernelInitFlow(TaskFlow):
         sig.chain(self, "boot_userapp")
 
     def boot_userapp(self, sig: Signal):
-        raise DerivationStopped("boot_userapp")
+        from framework.engine import terminate
+
+        terminate("\t[Reach UserApp]")

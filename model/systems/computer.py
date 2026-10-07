@@ -7,4 +7,5 @@ from framework.engine import System
 
 @dataclass
 class Computer(System):
-    pass
+    def __repr__(self):
+        return "Computer"

@@ -68,7 +68,7 @@ def test_drive_source_and_nested_events(capsys):
     assert len(target.environments) == 2
     assert all(env is cv for env in target.environments)
     assert capsys.readouterr().out.splitlines() == [
-        "Computer():",
+        "Computer:",
         "    relay -> Relay",
         "    Relay:",
         "        enqueue -> Target",
@@ -95,18 +95,17 @@ def test_drive_all_source_and_generator(capsys):
         assert len(target.environments) == 1
         assert target.environments[0] is cv
     assert capsys.readouterr().out.splitlines() == [
-        "Computer():",
+        "Computer:",
         "    receive -> First",
-        "Computer():",
+        "Computer:",
         "    receive -> Second",
     ]
     assert env.depth == 0
 
 
-def test_signal_releases_environment_when_action_raises():
+def test_signal_releases_environment_when_action_asserts():
     cv = ContentionVector.ones()
     env = TaskLocalEnv(cv)
-    error = RuntimeError("action failed")
     calls: list[tuple[str, ContentionVector]] = []
 
     class FailingTarget(System):
@@ -122,7 +121,7 @@ def test_signal_releases_environment_when_action_raises():
         def fail(self, sig: Signal):
             calls.append(("action", sig.env.cv))
             assert sig.env.cv.local_irq == 0
-            raise error
+            assert False, "action failed"
 
         def release(self, env: TaskLocalEnv, action: str):
             cv = env.cv
@@ -134,10 +133,9 @@ def test_signal_releases_environment_when_action_raises():
 
     signal = Signal(FailingTarget(), "fail", {}, env, deque())
 
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(AssertionError, match="action failed"):
         signal.handle()
 
-    assert exc_info.value is error
     assert [phase for phase, _ in calls] == ["acquire", "action", "release"]
     assert all(env is cv for _, env in calls)
     assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
@@ -700,7 +698,6 @@ def test_nested_failure_restores_surrounding_queue_stack_and_depth(caught):
     parent_queue: deque[Signal] = deque()
     env = TaskLocalEnv(depth=3, signal_queues=[parent_queue])
     events: list[str] = []
-    error = RuntimeError("inner failed")
 
     class Nested(System):
         def outer(self, sig: Signal):
@@ -708,7 +705,7 @@ def test_nested_failure_restores_surrounding_queue_stack_and_depth(caught):
             queue = sig.queue
             try:
                 self.drive(sig.env, self, "inner")
-            except RuntimeError:
+            except AssertionError:
                 assert sig.env.depth == 4
                 assert sig.env.signal_queues == [parent_queue, queue]
                 if not caught:
@@ -717,7 +714,7 @@ def test_nested_failure_restores_surrounding_queue_stack_and_depth(caught):
 
         def inner(self, sig: Signal):
             sig.chain(self, "record", event="abandoned")
-            raise error
+            assert False, "inner failed"
 
         def record(self, sig: Signal):
             events.append(sig.args["event"])
@@ -727,9 +724,8 @@ def test_nested_failure_restores_surrounding_queue_stack_and_depth(caught):
         System().drive(env, target, "outer")
         assert events == ["caught", "outer next"]
     else:
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(AssertionError, match="inner failed"):
             System().drive(env, target, "outer")
-        assert exc_info.value is error
         assert events == []
     assert env.depth == 3
     assert env.signal_queues == [parent_queue]

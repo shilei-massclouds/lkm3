@@ -24,8 +24,7 @@ class BootInitFlow(TaskFlow):
     def sched_init(self, sig: Signal):
         from global_vars import gv
 
-        if gv.scheduler is not None:
-            raise RuntimeError("scheduler has already been initialized")
+        assert gv.scheduler is None, "scheduler has already been initialized"
         scheduler = Scheduler()
         self.drive(sig.env, scheduler, "setup")
         gv.scheduler = scheduler
@@ -43,8 +42,9 @@ class BootInitFlow(TaskFlow):
         from global_vars import gv
 
         assert gv.scheduler is not None
-        if gv.kernel_init_task is not None or gv.kthreadd_task is not None:
-            raise RuntimeError("initial tasks have already been created")
+        assert gv.kernel_init_task is None and gv.kthreadd_task is None, (
+            "initial tasks have already been created"
+        )
         gv.kernel_init_task = KernelInitTask(
             "kernel_init",
             gv.kernel_init_flow,
@@ -53,6 +53,9 @@ class BootInitFlow(TaskFlow):
             gv.scheduler,
             pid=1,
         )
+        self.drive(sig.env, gv.kernel_init_task, "setup")
+        self.drive(sig.env, gv.kernel_init_task, "enable")
+
         gv.kthreadd_task = Task(
             "kthreadd",
             gv.kthreadd_flow,
@@ -61,9 +64,9 @@ class BootInitFlow(TaskFlow):
             gv.scheduler,
             pid=2,
         )
-        for task in (gv.kernel_init_task, gv.kthreadd_task):
-            self.drive(sig.env, task, "setup")
-            self.drive(sig.env, task, "enable")
+        self.drive(sig.env, gv.kthreadd_task, "setup")
+        self.drive(sig.env, gv.kthreadd_task, "enable")
+
         sig.chain(self, "yield_current")
 
     @requires_cv(ContentionVector(zero=True, local_irq=1))
@@ -79,7 +82,7 @@ class BootInitFlow(TaskFlow):
 
     @requires_cv(ContentionVector(zero=True, local_irq=1))
     def enter_idle(self, sig: Signal):
-        while True:
+        for _ in range(3):
             self.drive(sig.env, self, "do_idle")
 
     @requires_cv(ContentionVector(local_tasks=0))

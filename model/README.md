@@ -7,11 +7,13 @@ on the caller's stack, before any scheduler exists. Its `sched_init` action
 initializes the scheduler before enabling IRQs. It then creates and enables
 task 1 (`kernel_init`) and task 2 (`kthreadd`) before scheduling for the first time.
 
-The scheduler owns an internal greenlet, activated only by `schedule` calls.
-Its queue holds ordinary tasks waiting to run; a yielding task joins the tail,
-a blocked task leaves the queue until enabled again, and a finished task is
-removed. Task 0 is the separate idle fallback, selected when no ordinary task
-is ready. There is no public `Scheduler.run` entry point.
+The scheduler executes on the calling task's stack. Its queue holds ordinary
+tasks waiting to run; a yielding task joins the tail and a blocked task leaves
+the queue until enabled again. `schedule` selects the next task and switches
+directly to its greenlet. When a task finishes, it selects the next task and
+returns directly to that greenlet. Task 0 is the separate idle fallback,
+selected when no ordinary task is ready. The scheduler has no greenlet or
+dispatch loop of its own.
 
 Use Python 3.14 and `greenlet>=3.3,<4`. Install the Python dependency with:
 
@@ -36,20 +38,25 @@ make test DEBUG=y
 make run DEBUG=y
 ```
 
-Create a bootstrap `TaskLocalEnv()` for synchronous setup. Pass the environment
-explicitly to `System.drive(env, target, action, **kwargs)` and
-`System.drive_all(env, targets, action, **kwargs)`. Task actions pass `sig.env`
+Synchronous entrypoints receive an explicit `TaskLocalEnv`. `main.py` intentionally
+creates one fresh bootstrap environment for `Kernel.setup` and another for
+`Kernel.boot`; these are independent entrypoints. Task actions pass `sig.env`
 to nested drivers and use `sig.env.cv` for synchronization primitives.
 
 The boot task starts with contention `(0, 0, 0, 0)` and schedules explicitly
-with preemption disabled. After resuming it enters an infinite idle loop,
-which repeatedly calls `schedule`. Hardware idle waiting and IRQ events are
-not yet modeled. Task 2 blocks while waiting for kernel-thread requests.
+with preemption disabled. After resuming it performs three idle iterations,
+each calling `schedule`. Hardware idle waiting and IRQ events are not yet
+modeled. Task 2 blocks while waiting for kernel-thread requests.
 
-For now task 1's `boot_userapp` raises `DerivationStopped`, an `AssertionError`
-subclass marking the temporary end of derivation. The exception unwinds the
-other task stacks and the internal scheduler greenlet. `main` reports this
-specific boundary as a successful stop; unrelated errors still propagate.
-The default run stops before task 0 enters idle and before task 2 executes.
+For now task 1's `boot_userapp` calls `terminate`, which prints the temporary
+user application boundary and exits the process with status 0. This is the
+normal end of the current derivation; it is distinct from assertion failures
+for invalid states and contention violations. There are no custom exception
+types, recovery or peer cancellation. Active drivers still restore their queue
+stacks and depth in `finally`. Start a fresh model with `gv.reset()` for another
+derivation.
+
+The default run stops before task 0 enters idle and before task 2 executes;
+`make run` returns status 0 at the termination boundary.
 The boot and initialization vectors at this boundary are `(1, 0, 0, 0)` and
 `(1, 1, 0, 0)`. An empty ordinary run queue alone never terminates the model.

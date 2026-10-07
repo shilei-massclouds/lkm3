@@ -26,4 +26,4 @@ class Kernel(System):
     def boot(self, sig: Signal):
         from global_vars import gv
 
-        gv.boot_init_task.start()
+        self.drive(sig.env, gv.boot_init_task, "start")

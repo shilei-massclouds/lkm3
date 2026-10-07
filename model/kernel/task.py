@@ -8,7 +8,7 @@ from greenlet import getcurrent, greenlet
 from flows.task_flow import TaskFlow
 from framework.engine import Signal, System, TaskLocalEnv, requires_cv
 from framework.scheduler import Scheduler
-from framework.sync import ContentionVector
+from framework.sync import EXCLUSIVE_CV, ContentionVector
 
 
 class TaskState(Enum):
@@ -18,7 +18,6 @@ class TaskState(Enum):
     RUNNING = auto()
     BLOCKED = auto()
     FINISHED = auto()
-    CANCELLED = auto()
 
 
 @requires_cv(ContentionVector(zero=True, local_irq=1, local_tasks=1))
@@ -47,47 +46,49 @@ class Task(System):
         label = self.name if self.pid is None else f"{self.pid}, {self.name}"
         return f"Task({label})"
 
-    def bind_current(self):
-        """Task 0 adopts the already running stack, before a scheduler exists."""
-        if self.pid != 0 or self.scheduler is not None:
-            raise RuntimeError("only task 0 can start before scheduler initialization")
-        if self.greenlet is not None:
-            raise RuntimeError("task has already been set up")
-        self.greenlet = getcurrent()
-        self.state = TaskState.RUNNING
-
-    def start(self):
-        self.bind_current()
-        try:
-            self._run()
-        except BaseException as error:
-            if self.scheduler is not None:
-                self.scheduler.close(error)
-            self.state = TaskState.CANCELLED
-            raise
-        else:
-            if self.scheduler is not None:
-                self.scheduler.close()
-            self.state = TaskState.FINISHED
-
     def require_scheduler(self) -> Scheduler:
-        if self.scheduler is None:
-            raise RuntimeError("task has no initialized scheduler")
+        assert self.scheduler is not None, "task has no initialized scheduler"
         return self.scheduler
 
     def setup(self, sig: Signal):
-        if self.greenlet is not None:
-            raise RuntimeError("task has already been set up")
+        assert self.greenlet is None, "task has already been set up"
         scheduler = self.require_scheduler()
-        scheduler.register(self, sig)
-        self.greenlet = greenlet(self._run, parent=scheduler.context)
+        scheduler._require_current(sig.env)
+        assert self.pid != 0, "task 0 must adopt its existing stack"
+        assert scheduler.idle is not None and scheduler.idle.greenlet is not None
+        self.greenlet = greenlet(self._run, parent=scheduler.idle.greenlet)
         self.state = TaskState.PREPARED
 
     def enable(self, sig: Signal):
         self.drive(sig.env, self.require_scheduler(), "enqueue", task=self)
 
-    def _run(self):
+    def _run(self, _previous_result: object = None):
+        # A finishing task can start this greenlet by returning its result to it.
         self.drive(self.env, self.flow, self.action)
+        if self.pid != 0:
+            self.require_scheduler().finish(self.env)
+
+
+class BootInitTask(Task):
+    def __init__(self):
+        from flows.boot_init_flow import BootInitFlow
+
+        super().__init__(
+            name="boot_init",
+            pid=0,
+            flow=BootInitFlow(),
+            action="arch_boot",
+            cv=EXCLUSIVE_CV,
+        )
+
+    def start(self, sig: Signal):
+        assert self.scheduler is None
+        assert self.greenlet is None, "task has already been started"
+
+        self.greenlet = getcurrent()
+        self.state = TaskState.RUNNING
+        self._run()
+        self.state = TaskState.FINISHED
 
 
 class KernelInitTask(Task):
