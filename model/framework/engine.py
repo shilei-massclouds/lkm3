@@ -12,7 +12,7 @@ from framework.sync import EXCLUSIVE_CV, ContentionVector
 if TYPE_CHECKING:
     from kernel.task import Task
 
-_REQUIRE_CV_ATTR = "__require_cv__"
+_REQUIRES_CV_ATTR = "__requires_cv__"
 
 
 def env_enabled(name: str) -> bool:
@@ -60,14 +60,14 @@ class System:
         default_factory=ContentionVector.ones, kw_only=True, repr=False
     )
 
-    def resolve_require_cv(self, action: str | None = None) -> ContentionVector:
+    def resolve_requires_cv(self, action: str | None = None) -> ContentionVector:
         """Copy the method requirement, nearest class declaration, or default."""
         if action is not None:
-            requirement = getattr(getattr(self, action), _REQUIRE_CV_ATTR, None)
+            requirement = getattr(getattr(self, action), _REQUIRES_CV_ATTR, None)
             if requirement is not None:
                 return copy(requirement)
         for cls in type(self).__mro__:
-            requirement = cls.__dict__.get(_REQUIRE_CV_ATTR)
+            requirement = cls.__dict__.get(_REQUIRES_CV_ATTR)
             if requirement is not None:
                 return copy(requirement)
         return copy(EXCLUSIVE_CV)
@@ -108,7 +108,7 @@ class System:
 
     def check_invariant(self, env: TaskLocalEnv, action: str | None = None) -> bool:
         effective_cv = env.cv.min(self.visibility)
-        requirement = self.resolve_require_cv(action)
+        requirement = self.resolve_requires_cv(action)
         if env_enabled("DEBUG"):
             print(
                 self.format_invariant(env, f"[DEBUG] {self}.check_invariant:", action),
@@ -121,7 +121,7 @@ class System:
     ) -> list[str]:
         """List domains whose visible contention exceeds their requirement."""
         effective_cv = env.cv.min(self.visibility)
-        requirement = self.resolve_require_cv(action)
+        requirement = self.resolve_requires_cv(action)
         return [
             domain
             for domain in ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
@@ -148,7 +148,7 @@ class System:
             f"{violations}"
             f"{indent}    cv={env.cv}\n"
             f"{indent}    visibility={self.visibility}\n"
-            f"{indent}    require_cv={self.resolve_require_cv(action)}"
+            f"{indent}    requires_cv={self.resolve_requires_cv(action)}"
         )
 
 
@@ -175,7 +175,7 @@ def requires_cv[T: type[System] | Callable[..., Any]](
             assert isinstance(target, FunctionType), (
                 "requires_cv expects a System subclass or instance method"
             )
-        setattr(target, _REQUIRE_CV_ATTR, copy(template))
+        setattr(target, _REQUIRES_CV_ATTR, copy(template))
         return cast(T, target)
 
     return decorate

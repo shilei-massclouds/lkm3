@@ -150,7 +150,7 @@ def test_finite_idle_keeps_scheduling_and_wakes_blocked_init_while_kthreadd_wait
     gv.kernel_init_flow = WaitingInitFlow()
     idle_action = BootInitFlow.do_idle
 
-    @requires_cv(gv.boot_init_task.flow.resolve_require_cv("do_idle"))
+    @requires_cv(gv.boot_init_task.flow.resolve_requires_cv("do_idle"))
     def observe_idle(self: BootInitFlow, sig: Signal):
         scheduler = gv.scheduler
         init = gv.kernel_init_task

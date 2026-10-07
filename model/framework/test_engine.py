@@ -150,16 +150,16 @@ def test_system_defaults_require_exclusive_access():
     assert system.visibility.local_tasks == 1
     assert system.visibility.remote_irq == 1
     assert system.visibility.remote_tasks == 1
-    requirement = system.resolve_require_cv()
+    requirement = system.resolve_requires_cv()
     assert requirement.local_irq == 0
     assert requirement.local_tasks == 0
     assert requirement.remote_irq == 0
     assert requirement.remote_tasks == 0
     requirement.local_irq = 1
-    assert system.resolve_require_cv().local_irq == EXCLUSIVE_CV.local_irq == 0
-    assert not hasattr(system, "require_cv")
-    assert "require_cv" not in signature(System).parameters
-    assert "require_cv" not in {item.name for item in fields(System)}
+    assert system.resolve_requires_cv().local_irq == EXCLUSIVE_CV.local_irq == 0
+    assert not hasattr(system, "requires_cv")
+    assert "requires_cv" not in signature(System).parameters
+    assert "requires_cv" not in {item.name for item in fields(System)}
     assert not system.check_invariant(env)
 
     cv.local_irq = 0
@@ -278,7 +278,7 @@ def test_requires_cv_class_declaration_controls_signal_dispatch():
 
     assert target.received == [payload]
     assert target.environments == [cv]
-    with pytest.raises(AssertionError, match="require_cv="):
+    with pytest.raises(AssertionError, match="requires_cv="):
         Computer().drive(
             TaskLocalEnv(ContentionVector.ones()), target, "receive", payload=object()
         )
@@ -308,9 +308,9 @@ def test_requires_cv_copies_declarations_and_resolved_requirements(declaration):
     default.local_irq = 0
     first = receiver_type("First")
     second = receiver_type("Second")
-    resolved = first.resolve_require_cv("receive")
+    resolved = first.resolve_requires_cv("receive")
     resolved.remote_tasks = 0
-    other = second.resolve_require_cv("receive")
+    other = second.resolve_requires_cv("receive")
 
     assert resolved is not other
     assert other is not default
@@ -318,9 +318,9 @@ def test_requires_cv_copies_declarations_and_resolved_requirements(declaration):
     assert other.local_tasks == 0
     assert other.remote_irq == 0
     assert other.remote_tasks == 1
-    assert first.resolve_require_cv("receive").remote_tasks == 1
-    assert System().resolve_require_cv().local_irq == 0
-    assert Receiver("Exclusive").resolve_require_cv("receive").remote_tasks == 0
+    assert first.resolve_requires_cv("receive").remote_tasks == 1
+    assert System().resolve_requires_cv().local_irq == 0
+    assert Receiver("Exclusive").resolve_requires_cv("receive").remote_tasks == 0
 
     cv = ContentionVector(zero=True, local_irq=1, remote_tasks=1)
     env = TaskLocalEnv(cv)
@@ -356,8 +356,8 @@ def test_requires_cv_is_inherited_and_can_be_overridden_by_subclasses():
     assert child.check_invariant(env)
     assert not ExclusiveChild("exclusive").check_invariant(env)
     assert SharedSystem("parent").check_invariant(env)
-    assert plain.resolve_require_cv().local_irq == 1
-    assert DataclassChild("another", 1).resolve_require_cv().local_irq == 1
+    assert plain.resolve_requires_cv().local_irq == 1
+    assert DataclassChild("another", 1).resolve_requires_cv().local_irq == 1
 
 
 def test_class_declarations_follow_mro_without_inherited_attribute_shortcuts():
@@ -444,7 +444,7 @@ def test_class_decorator_preserves_custom_constructor_and_dataclass_metadata():
     assert target.name == "configured"
     assert target.options == {"setting": 3}
     assert target.visibility is visibility
-    assert not hasattr(target, "require_cv")
+    assert not hasattr(target, "requires_cv")
     assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()))
 
 
@@ -457,7 +457,7 @@ def test_class_declaration_also_works_below_dataclass():
     target = SharedSystem("shared")
     assert target.name == "shared"
     assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()))
-    assert "require_cv" not in signature(SharedSystem).parameters
+    assert "requires_cv" not in signature(SharedSystem).parameters
 
 
 @pytest.mark.parametrize(
@@ -632,14 +632,14 @@ def test_diagnostics_report_the_selected_requirement(declaration, monkeypatch, c
         "    [DEBUG] Target.check_invariant:",
         f"        cv={cv}",
         f"        visibility={target.visibility}",
-        f"        require_cv={requirement}",
+        f"        requires_cv={requirement}",
     ]
     assert str(exc_info.value).splitlines() == [
         f"    Contention invariant violated for Target.{action}:",
         f"        violated domains: {', '.join(domains)}",
         f"        cv={cv}",
         f"        visibility={target.visibility}",
-        f"        require_cv={requirement}",
+        f"        requires_cv={requirement}",
     ]
     assert target.violated_domains(env, action) == domains
     assert not target.received
@@ -652,7 +652,7 @@ def test_diagnostics_report_the_selected_requirement(declaration, monkeypatch, c
     class_domains = domains if declaration == "default" else ["remote_tasks"]
     assert target.violated_domains(env) == class_domains
     formatted = target.format_invariant(env, "Inputs:", show_violations=True)
-    assert f"require_cv={class_requirement}" in formatted
+    assert f"requires_cv={class_requirement}" in formatted
     assert f"violated domains: {', '.join(class_domains)}" in formatted
 
 
