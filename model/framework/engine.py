@@ -7,12 +7,13 @@ from os import getenv
 from types import FunctionType
 from typing import TYPE_CHECKING, Any, cast
 
-from framework.sync import EXCLUSIVE_CV, ContentionVector
+from framework.sync import EXCLUSIVE_CV, FREE_CV, ContentionVector
 
 if TYPE_CHECKING:
     from kernel.task import Task
 
 _REQUIRES_CV_ATTR = "__requires_cv__"
+_VISIBILITY_ATTR = "__visibility__"
 
 
 def env_enabled(name: str) -> bool:
@@ -56,10 +57,6 @@ class Signal:
 
 @dataclass
 class System:
-    visibility: ContentionVector = field(
-        default_factory=ContentionVector.ones, kw_only=True, repr=False
-    )
-
     def resolve_requires_cv(self, action: str | None = None) -> ContentionVector:
         """Copy the method requirement, nearest class declaration, or default."""
         if action is not None:
@@ -71,6 +68,18 @@ class System:
             if requirement is not None:
                 return copy(requirement)
         return copy(EXCLUSIVE_CV)
+
+    def resolve_visibility(self, action: str | None = None) -> ContentionVector:
+        """Copy the method declaration, nearest class declaration, or free default."""
+        if action is not None:
+            declaration = getattr(getattr(self, action), _VISIBILITY_ATTR, None)
+            if declaration is not None:
+                return copy(declaration)
+        for cls in type(self).__mro__:
+            declaration = cls.__dict__.get(_VISIBILITY_ATTR)
+            if declaration is not None:
+                return copy(declaration)
+        return copy(FREE_CV)
 
     def drive(self, env: TaskLocalEnv, target: System, action: str, **kwargs):
         """Finish this invocation's signal queue before returning to its caller."""
@@ -107,7 +116,7 @@ class System:
         pass
 
     def check_invariant(self, env: TaskLocalEnv, action: str | None = None) -> bool:
-        effective_cv = env.cv.min(self.visibility)
+        effective_cv = env.cv.min(self.resolve_visibility(action))
         requirement = self.resolve_requires_cv(action)
         if env_enabled("DEBUG"):
             print(
@@ -120,7 +129,7 @@ class System:
         self, env: TaskLocalEnv, action: str | None = None
     ) -> list[str]:
         """List domains whose visible contention exceeds their requirement."""
-        effective_cv = env.cv.min(self.visibility)
+        effective_cv = env.cv.min(self.resolve_visibility(action))
         requirement = self.resolve_requires_cv(action)
         return [
             domain
@@ -147,7 +156,7 @@ class System:
             f"{indent}{header}\n"
             f"{violations}"
             f"{indent}    cv={env.cv}\n"
-            f"{indent}    visibility={self.visibility}\n"
+            f"{indent}    visibility={self.resolve_visibility(action)}\n"
             f"{indent}    requires_cv={self.resolve_requires_cv(action)}"
         )
 
@@ -176,6 +185,34 @@ def requires_cv[T: type[System] | Callable[..., Any]](
                 "requires_cv expects a System subclass or instance method"
             )
         setattr(target, _REQUIRES_CV_ATTR, copy(template))
+        return cast(T, target)
+
+    return decorate
+
+
+def visibility[T: type[System] | Callable[..., Any]](
+    declaration: ContentionVector,
+) -> Callable[[T], T]:
+    """Declare a copied visibility on a System subclass or instance method.
+
+    Method declarations take precedence over class declarations. When no
+    declaration is present, the default is ``FREE_CV``.
+    """
+    assert isinstance(declaration, ContentionVector), (
+        "visibility expects a ContentionVector"
+    )
+    template = copy(declaration)
+
+    def decorate(target: T) -> T:
+        if isinstance(target, type):
+            assert issubclass(target, System), (
+                "visibility can only decorate System subclasses"
+            )
+        else:
+            assert isinstance(target, FunctionType), (
+                "visibility expects a System subclass or instance method"
+            )
+        setattr(target, _VISIBILITY_ATTR, copy(template))
         return cast(T, target)
 
     return decorate

@@ -7,6 +7,7 @@ from inspect import signature
 import pytest
 
 from framework.engine import Signal, System, TaskLocalEnv, requires_cv
+from framework.engine import visibility as declare_visibility
 from framework.sync import (
     EXCLUSIVE_CV,
     FREE_CV,
@@ -146,10 +147,12 @@ def test_system_defaults_require_exclusive_access():
     env = TaskLocalEnv(cv)
     system = System()
 
-    assert system.visibility.local_irq == 1
-    assert system.visibility.local_tasks == 1
-    assert system.visibility.remote_irq == 1
-    assert system.visibility.remote_tasks == 1
+    assert not hasattr(system, "visibility")
+    visible = system.resolve_visibility()
+    assert visible.local_irq == 1
+    assert visible.local_tasks == 1
+    assert visible.remote_irq == 1
+    assert visible.remote_tasks == 1
     requirement = system.resolve_requires_cv()
     assert requirement.local_irq == 0
     assert requirement.local_tasks == 0
@@ -158,6 +161,8 @@ def test_system_defaults_require_exclusive_access():
     requirement.local_irq = 1
     assert system.resolve_requires_cv().local_irq == EXCLUSIVE_CV.local_irq == 0
     assert not hasattr(system, "requires_cv")
+    assert "visibility" not in signature(System).parameters
+    assert "visibility" not in {item.name for item in fields(System)}
     assert "requires_cv" not in signature(System).parameters
     assert "requires_cv" not in {item.name for item in fields(System)}
     assert not system.check_invariant(env)
@@ -210,7 +215,12 @@ def test_invariant_masks_visibility_and_checks_each_required_domain():
     env = TaskLocalEnv(cv)
     visibility = ContentionVector.zeros()
     visibility.remote_tasks = 1
-    system = System(visibility=visibility)
+
+    @declare_visibility(visibility)
+    class VisibleSystem(System):
+        pass
+
+    system = VisibleSystem()
 
     assert not system.check_invariant(env)
 
@@ -218,12 +228,63 @@ def test_invariant_masks_visibility_and_checks_each_required_domain():
     class TaskTolerant(System):
         pass
 
-    tolerant = TaskTolerant(visibility=visibility)
-    assert tolerant.visibility is visibility
+    assert not TaskTolerant().check_invariant(TaskLocalEnv(ContentionVector.ones()))
+
+    @declare_visibility(visibility)
+    class VisibleTaskTolerant(TaskTolerant):
+        pass
+
+    tolerant = VisibleTaskTolerant()
+    assert tolerant.resolve_visibility().remote_tasks == 1
     assert tolerant.check_invariant(env)
-    assert not TaskTolerant().check_invariant(env)
-    assert System(visibility=ContentionVector.zeros()).check_invariant(env)
+
+    @declare_visibility(ContentionVector.zeros())
+    class FullyHidden(System):
+        pass
+
+    assert FullyHidden().check_invariant(env)
     assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
+
+
+def test_visibility_defaults_to_free_and_resolves_method_before_class():
+    @declare_visibility(ContentionVector(remote_tasks=0))
+    class VisibleReceiver(Receiver):
+        @declare_visibility(ContentionVector(local_irq=0))
+        def receive(self, sig: Signal):
+            super().receive(sig)
+
+    target = VisibleReceiver("Visible")
+    method_visibility = target.resolve_visibility("receive")
+    class_visibility = target.resolve_visibility("enqueue")
+
+    assert method_visibility.local_irq == 0
+    assert method_visibility.local_tasks == 1
+    assert method_visibility.remote_irq == 1
+    assert method_visibility.remote_tasks == 1
+    assert class_visibility.remote_tasks == 0
+    method_visibility.local_irq = 1
+    assert target.resolve_visibility("receive").local_irq == 0
+    assert all(
+        getattr(System().resolve_visibility(), domain) == 1
+        for domain in ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
+    )
+
+    @declare_visibility(ContentionVector.zeros())
+    class HiddenReceiver(Receiver):
+        pass
+
+    assert all(
+        getattr(HiddenReceiver("Hidden").resolve_visibility(), domain) == 0
+        for domain in ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
+    )
+
+    assert target.check_invariant(
+        TaskLocalEnv(ContentionVector(zero=True, local_irq=0)), "receive"
+    )
+    assert target.check_invariant(
+        TaskLocalEnv(ContentionVector(zero=True, remote_tasks=0)), "enqueue"
+    )
+    assert not target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "receive")
 
 
 def test_drive_stops_before_action_when_invariant_fails():
@@ -423,10 +484,8 @@ def test_requires_cv_supports_custom_initializers():
 
 def test_class_decorator_preserves_custom_constructor_and_dataclass_metadata():
     class ConfiguredSystem(System):
-        def __init__(
-            self, name: str, /, *, visibility: ContentionVector, **options: object
-        ):
-            super().__init__(visibility=visibility)
+        def __init__(self, name: str, /, **options: object):
+            super().__init__()
             self.name = name
             self.options = options
 
@@ -439,11 +498,10 @@ def test_class_decorator_preserves_custom_constructor_and_dataclass_metadata():
     assert signature(ConfiguredSystem) == original_signature
     assert ConfiguredSystem.__dataclass_fields__ is original_fields
 
-    visibility = ContentionVector.ones()
-    target = ConfiguredSystem("configured", visibility=visibility, setting=3)
+    target = ConfiguredSystem("configured", setting=3)
     assert target.name == "configured"
     assert target.options == {"setting": 3}
-    assert target.visibility is visibility
+    assert not hasattr(target, "visibility")
     assert not hasattr(target, "requires_cv")
     assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()))
 
@@ -631,14 +689,14 @@ def test_diagnostics_report_the_selected_requirement(declaration, monkeypatch, c
     assert capsys.readouterr().err.splitlines() == [
         "    [DEBUG] Target.check_invariant:",
         f"        cv={cv}",
-        f"        visibility={target.visibility}",
+        f"        visibility={target.resolve_visibility(action)}",
         f"        requires_cv={requirement}",
     ]
     assert str(exc_info.value).splitlines() == [
         f"    Contention invariant violated for Target.{action}:",
         f"        violated domains: {', '.join(domains)}",
         f"        cv={cv}",
-        f"        visibility={target.visibility}",
+        f"        visibility={target.resolve_visibility(action)}",
         f"        requires_cv={requirement}",
     ]
     assert target.violated_domains(env, action) == domains

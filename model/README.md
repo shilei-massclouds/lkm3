@@ -43,6 +43,12 @@ creates one fresh bootstrap environment for `Kernel.setup` and another for
 `Kernel.boot`; these are independent entrypoints. Task actions pass `sig.env`
 to nested drivers and use `sig.env.cv` for synchronization primitives.
 
+Contention declarations use `@requires_cv(...)` and `@visibility(...)` on
+classes or methods. Method declarations take precedence over the nearest class
+declaration. `requires_cv` falls back to an exclusive vector (all zero), while
+`visibility` falls back to a free vector (all one). Neither declaration is an
+instance field on `System`.
+
 The boot task starts with contention `(0, 0, 0, 0)` and schedules explicitly
 with preemption disabled. After resuming it performs three idle iterations,
 each calling `schedule`. Hardware idle waiting and IRQ events are not yet
