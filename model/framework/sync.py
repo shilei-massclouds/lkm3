@@ -196,6 +196,8 @@ EXCLUSIVE_CV = ContentionVector.zeros()
 # Visibility declarations. A transparent target is a convenience wrapper;
 # its nested actions provide their own contention requirements.
 TRANSPARENT_CV = ContentionVector.zeros()
+# A task-private target is visible only to its owning task.
+TASKPRIVATE_CV = ContentionVector.zeros()
 FULLSCOPE_CV = ContentionVector.ones()
 CPUSCOPE_CV = ContentionVector(local_irq=1, local_tasks=1, remote_irq=0, remote_tasks=0)
 TASKSCOPE_CV = ContentionVector(

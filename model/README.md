@@ -51,10 +51,11 @@ declaration. `requires_cv` falls back to an exclusive vector (all zero), while
 is an instance field on `System`. `EXCLUSIVE_CV` and `FREE_CV` name the
 environment and requirement defaults; `TRANSPARENT_CV` and `FULLSCOPE_CV` name
 the corresponding visibility values, even though the component values overlap.
-Other visibility presets select a context scope: `CPUSCOPE_CV` is `(1, 1, 0,
-0)` for per-CPU visibility, `TASKSCOPE_CV` is `(0, 1, 0, 1)` for task-context
-visibility, and `IRQSCOPE_CV` is `(1, 0, 1, 0)` for interrupt-context
-visibility.
+`TASKPRIVATE_CV` is also all zero, but denotes a target private to its owning
+task rather than a transparent convenience wrapper. Other visibility presets
+select a context scope: `CPUSCOPE_CV` is `(1, 1, 0, 0)` for per-CPU
+visibility, `TASKSCOPE_CV` is `(0, 1, 0, 1)` for task-context visibility, and
+`IRQSCOPE_CV` is `(1, 0, 1, 0)` for interrupt-context visibility.
 
 `requires_cv` is deprecated and retained only as a migration compatibility
 interface. Do not add new uses. Each call to `requires_cv(...)` emits a
@@ -77,8 +78,9 @@ has three distinct roles:
   other domain. An invisible domain cannot compete with that target. Visibility
   is per-domain, so a target can be visible to some domains and invisible to
   others. `TRANSPARENT_CV` (all zero) marks a convenience wrapper whose nested
-  actions carry the actual safety requirements; `FULLSCOPE_CV` (all one) marks
-  a target visible to every domain.
+  actions carry the actual safety requirements; `TASKPRIVATE_CV` (all zero)
+  marks a target private to its owning task; `FULLSCOPE_CV` (all one) marks a
+  target visible to every domain.
 - The target's legacy `requires_cv` is its safe contention boundary during
   migration. It defaults to all zero, meaning exclusive access, and a
   declaration can permit contention in selected domains.

@@ -269,7 +269,7 @@ def test_global_objects_create_only_task_zero_before_boot_and_reset_after_stop()
         )
     assert first.boot_init_task.flow is not second.boot_init_task.flow
     assert second.boot_init_task.env.cv.local_irq == 0
-    assert second.kernel_init_flow.resolve_visibility().local_irq == 1
+    assert second.kernel_init_flow.resolve_visibility().local_irq == 0
     with pytest.raises(SystemExit) as exc_info:
         main()
     assert exc_info.value.code == 0

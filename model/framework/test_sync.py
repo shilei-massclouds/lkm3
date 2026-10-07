@@ -8,6 +8,7 @@ from framework.sync import (
     FREE_CV,
     FULLSCOPE_CV,
     IRQSCOPE_CV,
+    TASKPRIVATE_CV,
     TASKSCOPE_CV,
     TRANSPARENT_CV,
     ContentionVector,
@@ -33,8 +34,11 @@ def test_role_defaults_keep_visibility_separate_from_contention_defaults():
     assert all(getattr(EXCLUSIVE_CV, domain) == 0 for domain in DOMAINS)
     assert all(getattr(FULLSCOPE_CV, domain) == 1 for domain in DOMAINS)
     assert all(getattr(TRANSPARENT_CV, domain) == 0 for domain in DOMAINS)
+    assert all(getattr(TASKPRIVATE_CV, domain) == 0 for domain in DOMAINS)
     assert FREE_CV is not FULLSCOPE_CV
     assert EXCLUSIVE_CV is not TRANSPARENT_CV
+    assert TASKPRIVATE_CV is not TRANSPARENT_CV
+    assert TASKPRIVATE_CV is not EXCLUSIVE_CV
 
 
 def test_visibility_scope_vectors_select_their_context_domains():

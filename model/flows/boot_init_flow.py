@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from flows.task_flow import TaskFlow
-from framework.engine import Signal, requires_cv
+from framework.engine import Signal
 from framework.scheduler import Scheduler
 from framework.sync import ContentionVector, LocalIrq, LocalMultiTasks, Preemption
 from kernel.task import KernelInitTask, Task
@@ -37,7 +37,6 @@ class BootInitFlow(TaskFlow):
         self.drive(sig.env, gv.io, "printk", msg="local irq enabled.")
         sig.chain(self, "spawn_tasks")
 
-    @requires_cv(ContentionVector(zero=True, local_irq=1))
     def spawn_tasks(self, sig: Signal):
         from global_vars import gv
 
@@ -69,7 +68,6 @@ class BootInitFlow(TaskFlow):
 
         sig.chain(self, "yield_current")
 
-    @requires_cv(ContentionVector(zero=True, local_irq=1))
     def yield_current(self, sig: Signal):
         from global_vars import gv
 
@@ -80,12 +78,10 @@ class BootInitFlow(TaskFlow):
         self.drive(sig.env, gv.scheduler, "schedule")
         sig.chain(self, "enter_idle")
 
-    @requires_cv(ContentionVector(zero=True, local_irq=1))
     def enter_idle(self, sig: Signal):
         for _ in range(3):
             self.drive(sig.env, self, "do_idle")
 
-    @requires_cv(ContentionVector(local_tasks=0))
     def do_idle(self, sig: Signal):
         assert sig.env.task is not None
         self.drive(sig.env, sig.env.task.require_scheduler(), "schedule")
