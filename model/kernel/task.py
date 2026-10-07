@@ -6,9 +6,9 @@ from enum import Enum, auto
 from greenlet import getcurrent, greenlet
 
 from flows.task_flow import TaskFlow
-from framework.engine import Signal, System, TaskLocalEnv, requires_cv
+from framework.engine import Signal, System, TaskLocalEnv, visibility
 from framework.scheduler import Scheduler
-from framework.sync import EXCLUSIVE_CV, ContentionVector
+from framework.sync import EXCLUSIVE_CV, TASKPRIVATE_CV, ContentionVector
 
 
 class TaskState(Enum):
@@ -20,7 +20,6 @@ class TaskState(Enum):
     FINISHED = auto()
 
 
-@requires_cv(ContentionVector(zero=True, local_irq=1, local_tasks=1))
 class Task(System):
     def __init__(
         self,
@@ -47,27 +46,29 @@ class Task(System):
         label = self.name if self.pid is None else f"{self.pid}, {self.name}"
         return f"Task({label})"
 
-    def require_scheduler(self) -> Scheduler:
+    def _scheduler(self) -> Scheduler:
         assert self.scheduler is not None, "task has no initialized scheduler"
         return self.scheduler
 
+    @visibility(TASKPRIVATE_CV)
     def setup(self, sig: Signal):
         assert self.greenlet is None, "task has already been set up"
-        scheduler = self.require_scheduler()
+        scheduler = self._scheduler()
         scheduler._require_current(sig.env)
         assert self.pid != 0, "task 0 must adopt its existing stack"
         assert scheduler.idle is not None and scheduler.idle.greenlet is not None
         self.greenlet = greenlet(self._run, parent=scheduler.idle.greenlet)
         self.state = TaskState.PREPARED
 
+    @visibility(TASKPRIVATE_CV)
     def enable(self, sig: Signal):
-        self.drive(sig.env, self.require_scheduler(), "enqueue", task=self)
+        self.drive(sig.env, self._scheduler(), "enqueue", task=self)
 
     def _run(self, _previous_result: object = None):
         # A finishing task can start this greenlet by returning its result to it.
         self.drive(self.env, self.flow, self.action)
         if self.pid != 0:
-            self.require_scheduler().finish(self.env)
+            self._scheduler().finish(self.env)
 
 
 class BootInitTask(Task):

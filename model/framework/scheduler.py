@@ -51,7 +51,7 @@ class Scheduler(System):
         ), "operation must be called by the current task"
         return task
 
-    def enqueue(self, sig: Signal):
+    def _queue(self, sig: Signal, expected_state, operation: str):
         from kernel.task import Task, TaskState
 
         self._require_current(sig.env)
@@ -64,14 +64,19 @@ class Scheduler(System):
         assert not task.greenlet.dead and task.state is not TaskState.FINISHED, (
             "task has already ended"
         )
-        assert task.state not in (TaskState.READY, TaskState.RUNNING), (
-            "task is already queued or running"
-        )
-        assert task.state in (TaskState.PREPARED, TaskState.BLOCKED), (
-            "task is not ready to be enabled"
-        )
+        assert task.state is expected_state, f"task is not ready to {operation}"
         task.state = TaskState.READY
         self.runq.append(task)
+
+    def enqueue(self, sig: Signal):
+        from kernel.task import TaskState
+
+        self._queue(sig, TaskState.PREPARED, "enable")
+
+    def wake(self, sig: Signal):
+        from kernel.task import TaskState
+
+        self._queue(sig, TaskState.BLOCKED, "wake")
 
     def _select_next(self) -> Task:
         from kernel.task import TaskState

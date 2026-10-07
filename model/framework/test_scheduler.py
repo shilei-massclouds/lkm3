@@ -257,7 +257,7 @@ def test_task_lifecycle_rejects_invalid_setup_and_enable(runtime):
     with pytest.raises(AssertionError, match="already been set up"):
         source.drive(env, task, "setup")
     source.drive(env, task, "enable")
-    with pytest.raises(AssertionError, match="already queued"):
+    with pytest.raises(AssertionError, match="not ready to enable"):
         source.drive(env, task, "enable")
     foreign = Task("foreign", EmptyFlow(), "start", LOCAL_CV, Scheduler())
     with pytest.raises(AssertionError, match="different scheduler"):
@@ -286,7 +286,7 @@ def test_schedule_rejects_bootstrap_foreign_task_and_forged_environments(runtime
             for invalid_env in (TaskLocalEnv(), other.env, TaskLocalEnv(task=task)):
                 with pytest.raises(AssertionError, match="current task"):
                     self.drive(invalid_env, scheduler, "schedule")
-            with pytest.raises(AssertionError, match="already queued"):
+            with pytest.raises(AssertionError, match="not ready to enable"):
                 self.drive(sig.env, task, "enable")
             self.drive(sig.env, scheduler, "schedule")
 
@@ -298,16 +298,15 @@ def test_schedule_rejects_bootstrap_foreign_task_and_forged_environments(runtime
 
 
 @pytest.mark.parametrize("domain", ["remote_irq", "remote_tasks"])
-@pytest.mark.parametrize("action", ["setup", "enable", "enqueue", "schedule"])
+@pytest.mark.parametrize("action", ["enqueue", "schedule"])
 def test_management_actions_reject_remote_contention(domain, action):
     scheduler = Scheduler()
     task = Task("task", EmptyFlow(), "start", LOCAL_CV, scheduler)
     cv = ContentionVector(zero=True, local_irq=1, local_tasks=1)
     setattr(cv, domain, 1)
     env = TaskLocalEnv(cv)
-    target = task if action in ("setup", "enable") else scheduler
     with pytest.raises(AssertionError, match=f"violated domains: {domain}"):
-        System().drive(env, target, action, task=task)
+        System().drive(env, scheduler, action, task=task)
     assert env.depth == 0 and env.signal_queues == []
 
 
@@ -411,7 +410,7 @@ def test_scheduler_requires_existing_task_zero_and_cannot_be_initialized_twice(r
     assert initialized.current is idle and not initialized.runq
 
 
-def test_blocked_task_leaves_run_queue_and_resumes_when_enabled(runtime):
+def test_blocked_task_leaves_run_queue_and_resumes_when_woken(runtime):
     idle, scheduler = runtime
     source = System()
     events: list[str] = []
@@ -441,7 +440,7 @@ def test_blocked_task_leaves_run_queue_and_resumes_when_enabled(runtime):
     assert scheduler.current is idle and not scheduler.runq
     source.drive(idle.env, scheduler, "schedule")
     assert events == ["blocked"]
-    source.drive(idle.env, task, "enable")
+    source.drive(idle.env, scheduler, "wake", task=task)
     assert task.state is TaskState.READY
     assert list(scheduler.runq) == [task]
     source.drive(idle.env, scheduler, "schedule")

@@ -84,4 +84,4 @@ class BootInitFlow(TaskFlow):
 
     def do_idle(self, sig: Signal):
         assert sig.env.task is not None
-        self.drive(sig.env, sig.env.task.require_scheduler(), "schedule")
+        self.drive(sig.env, sig.env.task._scheduler(), "schedule")

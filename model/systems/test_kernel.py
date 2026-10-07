@@ -141,7 +141,7 @@ def test_finite_idle_keeps_scheduling_and_wakes_blocked_init_while_kthreadd_wait
     class WaitingInitFlow(KernelInitFlow):
         def pre_smp(self, sig: Signal):
             assert sig.env.task is not None
-            scheduler = sig.env.task.require_scheduler()
+            scheduler = sig.env.task._scheduler()
             events.append("init running")
             while True:
                 self.drive(sig.env, scheduler, "schedule", block=True)
@@ -163,7 +163,7 @@ def test_finite_idle_keeps_scheduling_and_wakes_blocked_init_while_kthreadd_wait
         assert kthreadd.env.depth == 2 and len(kthreadd.env.signal_queues) == 2
         assert sig.env.cv.local_tasks == 0
         events.append("idle")
-        self.drive(sig.env, init, "enable")
+        self.drive(sig.env, scheduler, "wake", task=init)
         idle_action(self, sig)
 
     monkeypatch.setattr(BootInitFlow, "do_idle", observe_idle)
