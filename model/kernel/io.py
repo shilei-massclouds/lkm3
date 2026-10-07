@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 
-from framework.engine import Signal, System, requires_cv
-from framework.sync import FREE_CV, GuardLocalIrq, GuardYieldTryLock
+from framework.engine import Signal, System, requires_cv, visibility
+from framework.sync import FREE_CV, TRANSPARENT_CV, GuardLocalIrq, GuardYieldTryLock
 
 
 @dataclass
@@ -73,6 +73,7 @@ class Io(System):
     def __repr__(self):
         return "Io"
 
+    @visibility(TRANSPARENT_CV)
     def printk(self, sig: Signal):
         from global_vars import gv
 

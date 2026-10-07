@@ -11,12 +11,16 @@ from framework.engine import visibility as declare_visibility
 from framework.sync import (
     EXCLUSIVE_CV,
     FREE_CV,
+    FULLSCOPE_CV,
+    TRANSPARENT_CV,
     ContentionVector,
     GuardYieldLock,
     GuardYieldTryLock,
 )
 from kernel.params import CmdItem
 from systems.computer import Computer
+
+DOMAINS = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
 
 
 @dataclass
@@ -238,7 +242,7 @@ def test_invariant_masks_visibility_and_checks_each_required_domain():
     assert tolerant.resolve_visibility().remote_tasks == 1
     assert tolerant.check_invariant(env)
 
-    @declare_visibility(ContentionVector.zeros())
+    @declare_visibility(TRANSPARENT_CV)
     class FullyHidden(System):
         pass
 
@@ -246,7 +250,7 @@ def test_invariant_masks_visibility_and_checks_each_required_domain():
     assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
 
 
-def test_visibility_defaults_to_free_and_resolves_method_before_class():
+def test_visibility_defaults_to_full_scope_and_resolves_method_before_class():
     @declare_visibility(ContentionVector(remote_tasks=0))
     class VisibleReceiver(Receiver):
         @declare_visibility(ContentionVector(local_irq=0))
@@ -264,18 +268,17 @@ def test_visibility_defaults_to_free_and_resolves_method_before_class():
     assert class_visibility.remote_tasks == 0
     method_visibility.local_irq = 1
     assert target.resolve_visibility("receive").local_irq == 0
-    assert all(
-        getattr(System().resolve_visibility(), domain) == 1
-        for domain in ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
-    )
+    default_visibility = System().resolve_visibility()
+    assert default_visibility is not FULLSCOPE_CV
+    assert all(getattr(default_visibility, domain) == 1 for domain in DOMAINS)
 
-    @declare_visibility(ContentionVector.zeros())
+    @declare_visibility(TRANSPARENT_CV)
     class HiddenReceiver(Receiver):
         pass
 
     assert all(
         getattr(HiddenReceiver("Hidden").resolve_visibility(), domain) == 0
-        for domain in ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
+        for domain in DOMAINS
     )
 
     assert target.check_invariant(
@@ -285,6 +288,19 @@ def test_visibility_defaults_to_free_and_resolves_method_before_class():
         TaskLocalEnv(ContentionVector(zero=True, remote_tasks=0)), "enqueue"
     )
     assert not target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "receive")
+
+
+def test_transparent_visibility_masks_a_convenience_wrapper():
+    @declare_visibility(TRANSPARENT_CV)
+    class ConvenienceWrapper(System):
+        def run(self, sig: Signal):
+            pass
+
+    target = ConvenienceWrapper()
+    assert all(
+        getattr(target.resolve_visibility("run"), domain) == 0 for domain in DOMAINS
+    )
+    assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "run")
 
 
 def test_drive_stops_before_action_when_invariant_fails():

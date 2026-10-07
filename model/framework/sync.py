@@ -4,8 +4,8 @@ from types import TracebackType
 from typing import Self
 
 
-# A vector can represent environment contention, target visibility, or the
-# target's required safety boundary; dispatch combines these per domain.
+# A vector is used either for environment contention and required safety
+# boundaries, or for target visibility; these roles use separate named values.
 class ContentionVector:
     """Signed contention levels, compared independently in each domain.
 
@@ -170,5 +170,11 @@ class GuardYieldTryLock(GuardYieldLock):
         super().__exit__(exc_type, exc_value, traceback)
 
 
+# Environment and requires_cv defaults.
 FREE_CV = ContentionVector.ones()
 EXCLUSIVE_CV = ContentionVector.zeros()
+
+# Visibility declarations. A transparent target is a convenience wrapper;
+# its nested actions provide their own contention requirements.
+TRANSPARENT_CV = ContentionVector.zeros()
+FULLSCOPE_CV = ContentionVector.ones()

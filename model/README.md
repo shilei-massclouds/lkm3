@@ -46,8 +46,10 @@ to nested drivers and use `sig.env.cv` for synchronization primitives.
 Contention declarations use `@requires_cv(...)` and `@visibility(...)` on
 classes or methods. Method declarations take precedence over the nearest class
 declaration. `requires_cv` falls back to an exclusive vector (all zero), while
-`visibility` falls back to a free vector (all one). Neither declaration is an
-instance field on `System`.
+`visibility` falls back to a full-scope vector (all one). Neither declaration
+is an instance field on `System`. `EXCLUSIVE_CV` and `FREE_CV` name the
+environment and requirement defaults; `TRANSPARENT_CV` and `FULLSCOPE_CV` name
+the corresponding visibility values, even though the component values overlap.
 
 ## Contention-vector model
 
@@ -61,7 +63,9 @@ has three distinct roles:
 - The target's `visibility` describes whether the target can be seen by each
   other domain. An invisible domain cannot compete with that target. Visibility
   is per-domain, so a target can be visible to some domains and invisible to
-  others.
+  others. `TRANSPARENT_CV` (all zero) marks a convenience wrapper whose nested
+  actions carry the actual safety requirements; `FULLSCOPE_CV` (all one) marks
+  a target visible to every domain.
 - The target's `requires_cv` is its safe contention boundary. It defaults to
   all zero, meaning exclusive access, and a declaration can permit contention
   in selected domains.

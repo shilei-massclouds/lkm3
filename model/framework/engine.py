@@ -7,7 +7,7 @@ from os import getenv
 from types import FunctionType
 from typing import TYPE_CHECKING, Any, cast
 
-from framework.sync import EXCLUSIVE_CV, FREE_CV, ContentionVector
+from framework.sync import EXCLUSIVE_CV, FULLSCOPE_CV, ContentionVector
 
 if TYPE_CHECKING:
     from kernel.task import Task
@@ -70,7 +70,7 @@ class System:
         return copy(EXCLUSIVE_CV)
 
     def resolve_visibility(self, action: str | None = None) -> ContentionVector:
-        """Copy the method declaration, nearest class declaration, or free default."""
+        """Copy the method declaration, nearest class declaration, or full-scope default."""
         if action is not None:
             declaration = getattr(getattr(self, action), _VISIBILITY_ATTR, None)
             if declaration is not None:
@@ -79,7 +79,7 @@ class System:
             declaration = cls.__dict__.get(_VISIBILITY_ATTR)
             if declaration is not None:
                 return copy(declaration)
-        return copy(FREE_CV)
+        return copy(FULLSCOPE_CV)
 
     def drive(self, env: TaskLocalEnv, target: System, action: str, **kwargs):
         """Finish this invocation's signal queue before returning to its caller."""
@@ -196,7 +196,7 @@ def visibility[T: type[System] | Callable[..., Any]](
     """Declare a copied visibility on a System subclass or instance method.
 
     Method declarations take precedence over class declarations. When no
-    declaration is present, the default is ``FREE_CV``.
+    declaration is present, the default is ``FULLSCOPE_CV``.
     """
     assert isinstance(declaration, ContentionVector), (
         "visibility expects a ContentionVector"

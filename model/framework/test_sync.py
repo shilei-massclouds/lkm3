@@ -3,6 +3,10 @@
 import pytest
 
 from framework.sync import (
+    EXCLUSIVE_CV,
+    FREE_CV,
+    FULLSCOPE_CV,
+    TRANSPARENT_CV,
     ContentionVector,
     GuardLocalIrq,
     GuardYieldLock,
@@ -18,6 +22,15 @@ def test_named_constructors_initialize_all_domains():
 
     assert all(getattr(ones, domain) == 1 for domain in DOMAINS)
     assert all(getattr(zeros, domain) == 0 for domain in DOMAINS)
+
+
+def test_role_defaults_keep_visibility_separate_from_contention_defaults():
+    assert all(getattr(FREE_CV, domain) == 1 for domain in DOMAINS)
+    assert all(getattr(EXCLUSIVE_CV, domain) == 0 for domain in DOMAINS)
+    assert all(getattr(FULLSCOPE_CV, domain) == 1 for domain in DOMAINS)
+    assert all(getattr(TRANSPARENT_CV, domain) == 0 for domain in DOMAINS)
+    assert FREE_CV is not FULLSCOPE_CV
+    assert EXCLUSIVE_CV is not TRANSPARENT_CV
 
 
 def test_minimum_combines_domains_without_changing_inputs():
