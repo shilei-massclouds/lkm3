@@ -5,7 +5,7 @@ from greenlet import getcurrent
 
 from flows.boot_init_flow import BootInitFlow
 from flows.kernel_init_flow import KernelInitFlow
-from framework.engine import Signal, TaskLocalEnv, requires_cv
+from framework.engine import Signal, TaskLocalEnv, visibility
 from framework.scheduler import Scheduler
 from global_vars import GlobalVars, gv
 from kernel.task import BootInitTask, TaskState
@@ -150,7 +150,7 @@ def test_finite_idle_keeps_scheduling_and_wakes_blocked_init_while_kthreadd_wait
     gv.kernel_init_flow = WaitingInitFlow()
     idle_action = BootInitFlow.do_idle
 
-    @requires_cv(gv.boot_init_task.flow.resolve_requires_cv("do_idle"))
+    @visibility(gv.boot_init_task.flow.resolve_visibility("do_idle"))
     def observe_idle(self: BootInitFlow, sig: Signal):
         scheduler = gv.scheduler
         init = gv.kernel_init_task
