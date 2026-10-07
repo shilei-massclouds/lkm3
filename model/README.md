@@ -49,6 +49,36 @@ declaration. `requires_cv` falls back to an exclusive vector (all zero), while
 `visibility` falls back to a free vector (all one). Neither declaration is an
 instance field on `System`.
 
+## Contention-vector model
+
+The four components of a `ContentionVector` are interpreted from the current
+task's point of view while it accesses a target system. The same vector shape
+has three distinct roles:
+
+- `env.cv` describes whether each other domain can compete with the current
+  access to the target. It is passed through the current task's nested call
+  stack, and synchronization primitives adjust the relevant component.
+- The target's `visibility` describes whether the target can be seen by each
+  other domain. An invisible domain cannot compete with that target. Visibility
+  is per-domain, so a target can be visible to some domains and invisible to
+  others.
+- The target's `requires_cv` is its safe contention boundary. It defaults to
+  all zero, meaning exclusive access, and a declaration can permit contention
+  in selected domains.
+
+For each domain, dispatch first combines the environment and the target's
+resolved visibility with a minimum, then checks the result against the target's
+resolved boundary:
+
+```text
+effective_cv[d] = min(env.cv[d], target.visibility[d])
+assert effective_cv <= target.requires_cv
+```
+
+The check is component-wise across local IRQ, local tasks, remote IRQ and
+remote tasks. A zero visibility component masks contention in that domain; a
+one component preserves the environment's constraint.
+
 The boot task starts with contention `(0, 0, 0, 0)` and schedules explicitly
 with preemption disabled. After resuming it performs three idle iterations,
 each calling `schedule`. Hardware idle waiting and IRQ events are not yet

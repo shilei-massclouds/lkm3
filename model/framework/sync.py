@@ -4,6 +4,8 @@ from types import TracebackType
 from typing import Self
 
 
+# A vector can represent environment contention, target visibility, or the
+# target's required safety boundary; dispatch combines these per domain.
 class ContentionVector:
     """Signed contention levels, compared independently in each domain.
 
