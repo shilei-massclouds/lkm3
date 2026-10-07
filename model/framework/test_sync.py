@@ -3,9 +3,12 @@
 import pytest
 
 from framework.sync import (
+    CPUSCOPE_CV,
     EXCLUSIVE_CV,
     FREE_CV,
     FULLSCOPE_CV,
+    IRQSCOPE_CV,
+    TASKSCOPE_CV,
     TRANSPARENT_CV,
     ContentionVector,
     GuardLocalIrq,
@@ -31,6 +34,12 @@ def test_role_defaults_keep_visibility_separate_from_contention_defaults():
     assert all(getattr(TRANSPARENT_CV, domain) == 0 for domain in DOMAINS)
     assert FREE_CV is not FULLSCOPE_CV
     assert EXCLUSIVE_CV is not TRANSPARENT_CV
+
+
+def test_visibility_scope_vectors_select_their_context_domains():
+    assert tuple(getattr(CPUSCOPE_CV, domain) for domain in DOMAINS) == (1, 1, 0, 0)
+    assert tuple(getattr(TASKSCOPE_CV, domain) for domain in DOMAINS) == (0, 1, 0, 1)
+    assert tuple(getattr(IRQSCOPE_CV, domain) for domain in DOMAINS) == (1, 0, 1, 0)
 
 
 def test_minimum_combines_domains_without_changing_inputs():

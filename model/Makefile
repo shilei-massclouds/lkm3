@@ -14,4 +14,8 @@ test:
 	@$(PYRIGHT) .
 	pytest -q
 
-.PHONY: run test
+clean:
+	@find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +
+	@find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+
+.PHONY: run test clean

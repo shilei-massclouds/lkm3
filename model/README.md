@@ -36,6 +36,7 @@ also require Ruff, Pyright and pytest.
 make test
 make test DEBUG=y
 make run DEBUG=y
+make clean
 ```
 
 Synchronous entrypoints receive an explicit `TaskLocalEnv`. `main.py` intentionally
@@ -50,6 +51,10 @@ declaration. `requires_cv` falls back to an exclusive vector (all zero), while
 is an instance field on `System`. `EXCLUSIVE_CV` and `FREE_CV` name the
 environment and requirement defaults; `TRANSPARENT_CV` and `FULLSCOPE_CV` name
 the corresponding visibility values, even though the component values overlap.
+Other visibility presets select a context scope: `CPUSCOPE_CV` is `(1, 1, 0,
+0)` for per-CPU visibility, `TASKSCOPE_CV` is `(0, 1, 0, 1)` for task-context
+visibility, and `IRQSCOPE_CV` is `(1, 0, 1, 0)` for interrupt-context
+visibility.
 
 ## Contention-vector model
 

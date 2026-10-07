@@ -178,3 +178,8 @@ EXCLUSIVE_CV = ContentionVector.zeros()
 # its nested actions provide their own contention requirements.
 TRANSPARENT_CV = ContentionVector.zeros()
 FULLSCOPE_CV = ContentionVector.ones()
+CPUSCOPE_CV = ContentionVector(local_irq=1, local_tasks=1, remote_irq=0, remote_tasks=0)
+TASKSCOPE_CV = ContentionVector(
+    local_irq=0, local_tasks=1, remote_irq=0, remote_tasks=1
+)
+IRQSCOPE_CV = ContentionVector(local_irq=1, local_tasks=0, remote_irq=1, remote_tasks=0)
