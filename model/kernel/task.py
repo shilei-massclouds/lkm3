@@ -36,6 +36,7 @@ class Task(System):
         self.name = name
         self.pid = pid
         self.flow = flow
+        flow.claim(self)
         self.action = action
         self.scheduler = scheduler
         self.env = TaskLocalEnv(copy(cv), task=self)

@@ -6,7 +6,7 @@ import pytest
 from greenlet import getcurrent, gettrace, greenlet, settrace
 
 from flows.task_flow import TaskFlow
-from framework.engine import Signal, System, TaskLocalEnv, requires_cv
+from framework.engine import Signal, System, TaskLocalEnv
 from framework.scheduler import Scheduler
 from framework.sync import ContentionVector, GuardLocalIrq
 from kernel.task import BootInitTask, Task, TaskState
@@ -14,7 +14,6 @@ from kernel.task import BootInitTask, Task, TaskState
 LOCAL_CV = ContentionVector(zero=True, local_irq=1, local_tasks=1)
 
 
-@requires_cv(LOCAL_CV)
 class EmptyFlow(TaskFlow):
     def start(self, sig: Signal):
         pass
@@ -36,6 +35,15 @@ def prepare(source: System, env: TaskLocalEnv, task: Task, *, enable: bool = Tru
         source.drive(env, task, "enable")
 
 
+def test_task_flow_instances_cannot_be_shared(runtime):
+    _idle, scheduler = runtime
+    flow = EmptyFlow()
+
+    Task("first", flow, "start", LOCAL_CV, scheduler)
+    with pytest.raises(AssertionError, match="cannot be shared between tasks"):
+        Task("second", flow, "start", LOCAL_CV, scheduler)
+
+
 @pytest.mark.parametrize(
     "rounds, expected",
     [
@@ -53,7 +61,6 @@ def test_round_robin_self_yield_and_finished_tasks(runtime, rounds, expected):
     bootstrap = idle.env
     events: list[str] = []
 
-    @requires_cv(LOCAL_CV)
     class Flow(TaskFlow):
         def __init__(self, count: int):
             super().__init__()
@@ -100,7 +107,6 @@ def test_tasks_switch_directly_on_yield_and_exit(runtime):
     source = System()
     switches: list[tuple[greenlet, greenlet]] = []
 
-    @requires_cv(LOCAL_CV)
     class Flow(TaskFlow):
         def start(self, sig: Signal):
             self.drive(sig.env, scheduler, "schedule")
@@ -139,7 +145,6 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
     events: list[str] = []
     suspended: dict[str, tuple[TaskLocalEnv, tuple[deque[Signal], ...]]] = {}
 
-    @requires_cv(LOCAL_CV)
     class Flow(TaskFlow):
         def start(self, sig: Signal):
             task = sig.env.task
@@ -198,11 +203,13 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
                 assert env.task is not None
                 events.append(f"{env.task.name} nested released")
 
-    # A shared flow cannot supply any implicit environment for either task.
-    flow = Flow()
+    # Each task owns its own flow even when both use the same flow logic.
+    first_flow = Flow()
+    second_flow = Flow()
+    assert first_flow is not second_flow
     original = ContentionVector(zero=True, local_tasks=1)
-    first = Task("a", flow, "start", original, scheduler)
-    second = Task("b", flow, "start", LOCAL_CV, scheduler)
+    first = Task("a", first_flow, "start", original, scheduler)
+    second = Task("b", second_flow, "start", LOCAL_CV, scheduler)
     original.local_irq = 9
     assert first.env.cv.local_irq == 0
     for task in (first, second):
@@ -231,11 +238,12 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
     assert first.env.depth == second.env.depth == 0
     assert first.env.signal_queues == second.env.signal_queues == []
     lines = capsys.readouterr().out.splitlines()
-    assert lines.count(f"    start -> {flow!r}") == 2
-    assert lines.count(f"        nested -> {flow!r}") == 2
+    flow_repr = repr(first_flow)
+    assert lines.count(f"    start -> {flow_repr}") == 2
+    assert lines.count(f"        nested -> {flow_repr}") == 2
     assert lines.count("            schedule -> Scheduler()") == 2
-    assert lines.count(f"    pending -> {flow!r}") == 2
-    assert lines.count(f"        pending -> {flow!r}") == 4
+    assert lines.count(f"    pending -> {flow_repr}") == 2
+    assert lines.count(f"        pending -> {flow_repr}") == 4
 
 
 def test_task_lifecycle_rejects_invalid_setup_and_enable(runtime):
@@ -271,7 +279,6 @@ def test_schedule_rejects_bootstrap_foreign_task_and_forged_environments(runtime
     with pytest.raises(AssertionError, match="current task"):
         source.drive(TaskLocalEnv(), scheduler, "schedule")
 
-    @requires_cv(LOCAL_CV)
     class Flow(TaskFlow):
         def start(self, sig: Signal):
             task = sig.env.task
@@ -320,7 +327,6 @@ def test_task_assertion_propagates_without_cancelling_queued_peers(runtime):
     source = System()
     events: list[str] = []
 
-    @requires_cv(LOCAL_CV)
     class FailingFlow(TaskFlow):
         def start(self, sig: Signal):
             with GuardLocalIrq(sig.env.cv):
@@ -410,7 +416,6 @@ def test_blocked_task_leaves_run_queue_and_resumes_when_enabled(runtime):
     source = System()
     events: list[str] = []
 
-    @requires_cv(LOCAL_CV)
     class Flow(TaskFlow):
         def start(self, sig: Signal):
             token = object()
@@ -451,11 +456,10 @@ def test_a_running_task_can_prepare_and_enable_another_task(runtime):
     idle, scheduler = runtime
     events: list[str] = []
 
-    @requires_cv(LOCAL_CV)
     class Flow(TaskFlow):
         def start(self, sig: Signal):
             events.append("parent")
-            child = Task("child", self, "child", LOCAL_CV, scheduler)
+            child = Task("child", Flow(), "child", LOCAL_CV, scheduler)
             prepare(self, sig.env, child)
             self.drive(sig.env, scheduler, "schedule")
             events.append("parent resumed")

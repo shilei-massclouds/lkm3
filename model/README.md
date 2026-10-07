@@ -43,6 +43,8 @@ Synchronous entrypoints receive an explicit `TaskLocalEnv`. `main.py` intentiona
 creates one fresh bootstrap environment for `Kernel.setup` and another for
 `Kernel.boot`; these are independent entrypoints. Task actions pass `sig.env`
 to nested drivers and use `sig.env.cv` for synchronization primitives.
+Each `Task` owns a distinct `TaskFlow` instance. Tasks may use the same flow
+class, but sharing one flow instance is rejected.
 
 Contention declarations use `@requires_cv(...)` and `@visibility(...)` on
 classes or methods. Method declarations take precedence over the nearest class
