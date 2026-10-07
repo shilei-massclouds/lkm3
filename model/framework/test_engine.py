@@ -2,7 +2,8 @@
 
 from collections import deque
 from dataclasses import dataclass, field, fields
-from inspect import signature
+from inspect import currentframe, signature
+from warnings import catch_warnings
 
 import pytest
 
@@ -338,6 +339,47 @@ def test_yield_try_lock_allows_exclusive_dispatch_when_irq_contention_remains():
     assert target.received == [payload]
     assert target.environments[0] is cv
     assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
+
+
+@pytest.mark.parametrize("declaration", ["class", "method"])
+def test_requires_cv_warns_at_creation_and_preserves_dispatch(declaration):
+    class LegacyReceiver(Receiver):
+        def receive(self, sig: Signal):
+            super().receive(sig)
+
+    frame = currentframe()
+    assert frame is not None
+    with catch_warnings(record=True, action="always") as caught:
+        declaration_line = frame.f_lineno + 1
+        decorate = requires_cv(ContentionVector(remote_irq=0))
+
+        if declaration == "class":
+            assert decorate(LegacyReceiver) is LegacyReceiver
+        else:
+            method = LegacyReceiver.receive
+            assert decorate(method) is method
+
+        target = LegacyReceiver("Legacy")
+        cv = ContentionVector(remote_irq=0)
+        Computer().drive(TaskLocalEnv(cv), target, "receive", payload="allowed")
+        with pytest.raises(AssertionError, match="violated domains: remote_irq"):
+            Computer().drive(
+                TaskLocalEnv(ContentionVector.ones()),
+                target,
+                "receive",
+                payload="blocked",
+            )
+
+    assert len(caught) == 1
+    warning = caught[0]
+    assert warning.category is DeprecationWarning
+    assert str(warning.message) == (
+        "requires_cv is deprecated; use SyncPrimitive and visibility instead."
+    )
+    assert warning.filename == __file__
+    assert warning.lineno == declaration_line
+    assert target.received == ["allowed"]
+    assert target.environments == [cv]
 
 
 def test_requires_cv_class_declaration_controls_signal_dispatch():

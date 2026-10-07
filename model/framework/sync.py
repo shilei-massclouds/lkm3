@@ -102,6 +102,25 @@ class Preemption(SyncPrimitive):
         cv.local_tasks -= 1
 
 
+class GuardPreemption(Preemption):
+    """Reduce local task contention by one and restore it on exit."""
+
+    def __init__(self, cv: ContentionVector):
+        self.cv = cv
+
+    def __enter__(self) -> Self:
+        self.disable(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.enable(self.cv)
+
+
 class LocalMultiTasks(SyncPrimitive):
     """Model the one-way transition from a single task to local multitasking."""
 

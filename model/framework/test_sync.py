@@ -12,6 +12,7 @@ from framework.sync import (
     TRANSPARENT_CV,
     ContentionVector,
     GuardLocalIrq,
+    GuardPreemption,
     GuardYieldLock,
     GuardYieldTryLock,
 )
@@ -97,6 +98,35 @@ def test_irq_guard_restores_initial_state_without_reverting_other_domains():
     assert cv.local_irq == initial_irq
     assert cv.local_tasks == cv.remote_irq == 0
     assert cv.remote_tasks == 1
+
+
+@pytest.mark.parametrize("local_tasks", [0, 1, 2])
+def test_preemption_guard_restores_initial_state_without_changing_other_domains(
+    local_tasks,
+):
+    cv = ContentionVector(
+        local_irq=2,
+        local_tasks=local_tasks,
+        remote_irq=-1,
+        remote_tasks=3,
+    )
+
+    with GuardPreemption(cv):
+        assert cv.local_tasks == local_tasks - 1
+        assert (cv.local_irq, cv.remote_irq, cv.remote_tasks) == (2, -1, 3)
+
+    assert cv.local_tasks == local_tasks
+    assert (cv.local_irq, cv.remote_irq, cv.remote_tasks) == (2, -1, 3)
+
+
+def test_preemption_guard_restores_state_and_propagates_action_assertion():
+    cv = ContentionVector.ones()
+
+    with pytest.raises(AssertionError, match="action failed"), GuardPreemption(cv):
+        assert cv.local_tasks == 0
+        assert False, "action failed"
+
+    assert cv.local_tasks == 1
 
 
 def test_irq_guard_restores_state_and_propagates_action_assertion():

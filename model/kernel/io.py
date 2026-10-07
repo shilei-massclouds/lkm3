@@ -2,8 +2,13 @@
 
 from dataclasses import dataclass, field
 
-from framework.engine import Signal, System, requires_cv, visibility
-from framework.sync import FREE_CV, TRANSPARENT_CV, GuardLocalIrq, GuardYieldTryLock
+from framework.engine import Signal, System, visibility
+from framework.sync import (
+    TRANSPARENT_CV,
+    GuardLocalIrq,
+    GuardPreemption,
+    GuardYieldTryLock,
+)
 
 
 @dataclass
@@ -67,7 +72,6 @@ class PrintkRingBuffer(System):
         )
 
 
-@requires_cv(FREE_CV)
 @dataclass
 class Io(System):
     def __repr__(self):
@@ -80,7 +84,5 @@ class Io(System):
         with GuardLocalIrq(sig.env.cv):
             self.drive(sig.env, gv.prb, "store", msg=sig.args["msg"])
 
-        # preempt_disable
-        with GuardYieldTryLock(sig.env.cv):
+        with GuardPreemption(sig.env.cv), GuardYieldTryLock(sig.env.cv):
             self.drive(sig.env, gv.console_list, "flush_all")
-        # preempt_enable

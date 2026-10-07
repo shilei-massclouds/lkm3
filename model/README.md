@@ -56,6 +56,14 @@ Other visibility presets select a context scope: `CPUSCOPE_CV` is `(1, 1, 0,
 visibility, and `IRQSCOPE_CV` is `(1, 0, 1, 0)` for interrupt-context
 visibility.
 
+`requires_cv` is deprecated and retained only as a migration compatibility
+interface. Do not add new uses. Each call to `requires_cv(...)` emits a
+`DeprecationWarning` at the declaration site; existing declarations still
+keep their current contention-check behavior. Use `SyncPrimitive` to adjust
+environment contention and `visibility` to express target scope instead.
+Existing declarations will be migrated individually, without mechanically
+inverting their requirement vectors into visibility.
+
 ## Contention-vector model
 
 The four components of a `ContentionVector` are interpreted from the current
@@ -71,11 +79,11 @@ has three distinct roles:
   others. `TRANSPARENT_CV` (all zero) marks a convenience wrapper whose nested
   actions carry the actual safety requirements; `FULLSCOPE_CV` (all one) marks
   a target visible to every domain.
-- The target's `requires_cv` is its safe contention boundary. It defaults to
-  all zero, meaning exclusive access, and a declaration can permit contention
-  in selected domains.
+- The target's legacy `requires_cv` is its safe contention boundary during
+  migration. It defaults to all zero, meaning exclusive access, and a
+  declaration can permit contention in selected domains.
 
-For each domain, dispatch first combines the environment and the target's
+During migration, dispatch first combines the environment and the target's
 resolved visibility with a minimum, then checks the result against the target's
 resolved boundary:
 
@@ -87,6 +95,14 @@ assert effective_cv <= target.requires_cv
 The check is component-wise across local IRQ, local tasks, remote IRQ and
 remote tasks. A zero visibility component masks contention in that domain; a
 one component preserves the environment's constraint.
+
+After all legacy declarations have been migrated, `requires_cv` will be removed
+and every target will use the fixed exclusive safety boundary `EXCLUSIVE_CV`:
+
+```text
+effective_cv[d] = min(env.cv[d], target.visibility[d])
+assert effective_cv <= EXCLUSIVE_CV
+```
 
 The boot task starts with contention `(0, 0, 0, 0)` and schedules explicitly
 with preemption disabled. After resuming it performs three idle iterations,

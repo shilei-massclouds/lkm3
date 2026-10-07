@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from os import getenv
 from types import FunctionType
 from typing import TYPE_CHECKING, Any, cast
+from warnings import warn
 
 from framework.sync import EXCLUSIVE_CV, FULLSCOPE_CV, ContentionVector
 
@@ -169,7 +170,14 @@ def requires_cv[T: type[System] | Callable[..., Any]](
     Return the original object without wrapping constructors or method calls.
     Method declarations take precedence over class declarations during dispatch.
     Static methods, class methods, and properties are not supported.
+
+    Deprecated migration interface; use SyncPrimitive and visibility instead.
     """
+    warn(
+        "requires_cv is deprecated; use SyncPrimitive and visibility instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     assert isinstance(requirement, ContentionVector), (
         "requires_cv expects a ContentionVector"
     )
