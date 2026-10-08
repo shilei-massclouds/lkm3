@@ -9,7 +9,7 @@ from flows.task_flow import TaskFlow
 from framework.contention import ContentionVector
 from framework.engine import Signal, System, TaskLocalEnv
 from framework.scheduler import RunQueue, Scheduler
-from framework.sync_primitives import GuardLocalIrq
+from framework.sync_primitives import GuardBusyWaitIrqSavePreemption, GuardLocalIrq
 from kernel.task import BootInitTask, Task, TaskState
 
 LOCAL_CV = ContentionVector(zero=True, local_irq=1, local_tasks=1)
@@ -51,6 +51,54 @@ def test_scheduler_uses_a_fullscope_run_queue_boundary():
                 "remote_tasks",
             )
         )
+
+
+def test_task_lock_does_not_authorize_runqueue_mutation(runtime):
+    idle, scheduler = runtime
+    source = System()
+    idle.env.cv = ContentionVector.ones()
+    task = Task("new", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    prepare(source, idle.env, task, wake=False)
+
+    with GuardBusyWaitIrqSavePreemption(idle.env.cv, task):
+        with pytest.raises(
+            AssertionError, match="violated domains: remote_irq, remote_tasks"
+        ):
+            source.drive(
+                idle.env,
+                scheduler.runq,
+                "enqueue",
+                task=task,
+                expected_state=TaskState.PREPARED,
+            )
+        assert task.state is TaskState.PREPARED
+        assert not scheduler.runq
+
+    source.drive(idle.env, task, "wake_up_new_task")
+    assert task.state is TaskState.READY
+    assert list(scheduler.runq) == [task]
+    assert all(not stack for stack in idle.env.cv.stacks.values())
+
+
+def test_new_task_activation_records_both_protected_targets(runtime, monkeypatch):
+    idle, scheduler = runtime
+    idle.env.cv = ContentionVector.ones()
+    task = Task("new", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    enqueue = RunQueue.enqueue
+
+    def observe_enqueue(self: RunQueue, sig: Signal):
+        assert sig.env.cv.stacks["local_irq"] == [None]
+        assert sig.env.cv.stacks["local_tasks"] == [None, None]
+        assert sig.env.cv.stacks["remote_irq"][0] is task
+        assert sig.env.cv.stacks["remote_irq"][1] is self
+        assert sig.env.cv.stacks["remote_tasks"][0] is task
+        assert sig.env.cv.stacks["remote_tasks"][1] is self
+        enqueue(self, sig)
+
+    monkeypatch.setattr(RunQueue, "enqueue", observe_enqueue)
+    prepare(System(), idle.env, task)
+    assert list(scheduler.runq) == [task]
+    assert all(not stack for stack in idle.env.cv.stacks.values())
 
 
 def test_task_flow_instances_cannot_be_shared(runtime):

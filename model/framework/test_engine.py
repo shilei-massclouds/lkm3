@@ -7,13 +7,19 @@ from warnings import catch_warnings
 
 import pytest
 
-from framework.contention import FULLSCOPE_CV, TRANSPARENT_CV, ContentionVector
+from framework.contention import (
+    CPUSCOPE_CV,
+    FULLSCOPE_CV,
+    TRANSPARENT_CV,
+    ContentionVector,
+)
 from framework.engine import Signal, System, TaskLocalEnv, requires_cv
 from framework.engine import visibility as declare_visibility
 from framework.sync_primitives import (
     GuardBusyWaitIrqSave,
     GuardBusyWaitIrqSavePreemption,
     GuardBusyWaitPreemption,
+    GuardLocalIrq,
     GuardYieldLock,
     GuardYieldTryLock,
 )
@@ -116,10 +122,7 @@ def test_signal_releases_environment_when_action_asserts():
         def acquire(self, env: TaskLocalEnv, action: str):
             cv = env.cv
             calls.append(("acquire", cv))
-            cv.local_irq = 0
-            cv.local_tasks = 0
-            cv.remote_irq = 0
-            cv.remote_tasks = 0
+            cv.protect(None, *DOMAINS)
             super().acquire(env, action)
 
         def fail(self, sig: Signal):
@@ -130,10 +133,7 @@ def test_signal_releases_environment_when_action_asserts():
         def release(self, env: TaskLocalEnv, action: str):
             cv = env.cv
             calls.append(("release", cv))
-            cv.local_irq = 1
-            cv.local_tasks = 1
-            cv.remote_irq = 1
-            cv.remote_tasks = 1
+            cv.unprotect(None, *DOMAINS)
 
     signal = Signal(FailingTarget(), "fail", {}, env, deque())
 
@@ -160,10 +160,7 @@ def test_system_defaults_require_exclusive_access():
     assert "visibility" not in {item.name for item in fields(System)}
     assert not system.check_invariant(env)
 
-    cv.local_irq = 0
-    cv.local_tasks = 0
-    cv.remote_irq = 0
-    cv.remote_tasks = 0
+    cv.protect(None, *DOMAINS)
     assert system.check_invariant(env)
 
 
@@ -302,13 +299,13 @@ def test_yield_try_lock_allows_exclusive_dispatch_when_irq_contention_remains():
     payload = object()
     source = Computer()
 
-    with GuardYieldLock(cv):
+    with GuardYieldLock(cv, target):
         with pytest.raises(
             AssertionError, match="violated domains: local_irq, remote_irq"
         ):
             source.drive(env, target, "receive", payload=payload)
         assert not target.received
-        with GuardYieldTryLock(cv):
+        with GuardYieldTryLock(cv, target):
             source.drive(env, target, "receive", payload=payload)
         assert (cv.local_irq, cv.remote_irq) == (1, 1)
         assert (cv.local_tasks, cv.remote_tasks) == (0, 0)
@@ -335,7 +332,7 @@ def test_combined_busy_wait_guards_enforce_exclusive_dispatch_boundaries(
     target = Receiver("Target")
     payload = object()
 
-    with guard_type(cv):
+    with guard_type(cv, target):
         if unprotected_domain is None:
             source.drive(env, target, "receive", payload=payload)
             assert target.received == [payload]
@@ -348,6 +345,108 @@ def test_combined_busy_wait_guards_enforce_exclusive_dispatch_boundaries(
 
     assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
     assert env.depth == 0 and env.signal_queues == []
+
+
+def test_lock_targets_are_checked_by_identity_before_the_action_runs():
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+    target, equal_target = Receiver("Target"), Receiver("Target")
+    assert target == equal_target and target is not equal_target
+
+    with GuardYieldTryLock(cv, equal_target):
+        assert all(getattr(cv, domain) == 0 for domain in DOMAINS)
+        assert target.violated_domains(env, "receive") == list(DOMAINS)
+        with pytest.raises(AssertionError, match="Contention invariant violated"):
+            Computer().drive(env, target, "receive", payload="rejected")
+
+        assert not target.received and not target.environments
+
+
+def test_each_domain_requires_its_own_target_or_global_protection():
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+    target, other = Receiver("Target"), Receiver("Other")
+
+    with GuardBusyWaitIrqSavePreemption(cv, other):
+        assert target.violated_domains(env, "receive") == [
+            "remote_irq",
+            "remote_tasks",
+        ]
+        with GuardBusyWaitPreemption(cv, target):
+            Computer().drive(env, target, "receive", payload="accepted")
+            # The outer target remains protected even with a different stack top.
+            assert other.check_invariant(env, "receive")
+        assert target.violated_domains(env, "receive") == [
+            "remote_irq",
+            "remote_tasks",
+        ]
+
+    assert target.received == ["accepted"]
+    assert all(not cv.stacks[domain] for domain in DOMAINS)
+
+
+def test_global_protection_anywhere_in_a_stack_covers_other_targets():
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+    target, other = Receiver("Target"), Receiver("Other")
+
+    with GuardYieldTryLock(cv, None), GuardYieldTryLock(cv, other):
+        assert all(cv.stacks[domain] == [None, other] for domain in DOMAINS)
+        Computer().drive(env, target, "receive", payload="accepted")
+
+    assert target.received == ["accepted"]
+
+
+def test_numerical_zero_without_a_protection_reference_is_rejected():
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+    target = Receiver("Target")
+    for domain in DOMAINS:
+        setattr(cv, domain, 0)
+
+    assert target.violated_domains(env, "receive") == list(DOMAINS)
+    assert not target.check_invariant(env, "receive")
+    assert TransparentReceiver("Wrapper").check_invariant(env, "receive")
+
+
+def test_matching_stack_cannot_override_positive_contention():
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+    target = Receiver("Target")
+
+    with GuardYieldTryLock(cv, target):
+        cv.remote_tasks = 1
+        assert target.violated_domains(env, "receive") == ["remote_tasks"]
+        assert not target.check_invariant(env, "receive")
+
+
+@pytest.mark.parametrize("scope", [CPUSCOPE_CV, TRANSPARENT_CV])
+def test_hidden_domains_do_not_require_matching_lock_targets(scope):
+    @declare_visibility(scope)
+    class ScopedReceiver(Receiver):
+        pass
+
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+    target = ScopedReceiver("Target")
+
+    with GuardBusyWaitIrqSavePreemption(cv, object()):
+        Computer().drive(env, target, "receive", payload="accepted")
+
+    assert target.received == ["accepted"]
+
+
+def test_targeted_yield_lock_keeps_local_protection_target_specific():
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+    target, other = Receiver("Target"), Receiver("Other")
+
+    with GuardYieldTryLock(cv, other), GuardBusyWaitPreemption(cv, target):
+        assert target.violated_domains(env, "receive") == ["local_irq"]
+        with GuardLocalIrq(cv):
+            Computer().drive(env, target, "receive", payload="accepted")
+
+    assert target.received == ["accepted"]
 
 
 @pytest.mark.parametrize("declaration", ["class", "method"])

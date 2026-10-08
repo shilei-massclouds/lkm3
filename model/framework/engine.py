@@ -8,7 +8,7 @@ from types import FunctionType
 from typing import TYPE_CHECKING, Any, cast
 from warnings import warn
 
-from framework.contention import EXCLUSIVE_CV, FULLSCOPE_CV, ContentionVector
+from framework.contention import DOMAINS, EXCLUSIVE_CV, FULLSCOPE_CV, ContentionVector
 
 if TYPE_CHECKING:
     from kernel.task import Task
@@ -117,26 +117,29 @@ class System:
         pass
 
     def check_invariant(self, env: TaskLocalEnv, action: str | None = None) -> bool:
-        effective_cv = env.cv.min(self.resolve_visibility(action))
-        requirement = self.resolve_requires_cv(action)
         if env_enabled("DEBUG"):
             debug_action = action or "check_invariant"
             print(
                 self.format_invariant(env, f"[DEBUG] {self}.{debug_action}:", action),
                 file=sys.stderr,
             )
-        return effective_cv <= requirement
+        return not self.violated_domains(env, action)
 
     def violated_domains(
         self, env: TaskLocalEnv, action: str | None = None
     ) -> list[str]:
-        """List domains whose visible contention exceeds their requirement."""
-        effective_cv = env.cv.min(self.resolve_visibility(action))
+        """List visible domains with unsafe counts or mismatched protection."""
+        visible = self.resolve_visibility(action)
+        effective_cv = env.cv.min(visible)
         requirement = self.resolve_requires_cv(action)
         return [
             domain
-            for domain in ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
+            for domain in DOMAINS
             if getattr(effective_cv, domain) > getattr(requirement, domain)
+            or (
+                getattr(visible, domain) > getattr(requirement, domain)
+                and not env.cv.protects(domain, self)
+            )
         ]
 
     def format_invariant(
@@ -156,20 +159,26 @@ class System:
             "visibility": visibility,
             "effective": effective_cv,
         }
-        domains = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
         widths = {
             domain: max(
                 len(str(getattr(vector, domain))) for vector in vectors.values()
             )
-            for domain in domains
+            for domain in DOMAINS
         }
         rows = []
         for label, vector in vectors.items():
             values = ", ".join(
                 f"{domain}={getattr(vector, domain):>{widths[domain]}}"
-                for domain in domains
+                for domain in DOMAINS
             )
             rows.append(f"{indent}    {label:<11} = ({values})")
+        if show_violations:
+            for domain in self.violated_domains(env, action):
+                protections = ", ".join(
+                    "None" if target is None else repr(target)
+                    for target in env.cv.stacks[domain]
+                )
+                rows.append(f"{indent}    {domain} stack = [{protections}]")
         violations = (
             f"{indent}    violated domains: {', '.join(self.violated_domains(env, action))}\n"
             if show_violations

@@ -106,6 +106,37 @@ The check is component-wise across local IRQ, local tasks, remote IRQ and
 remote tasks. A zero visibility component masks contention in that domain; a
 one component preserves the environment's constraint.
 
+Each environment vector also owns four protection stacks, accessed through
+`cv.stacks[domain]`. Synchronization primitives decrement a component and push
+the object they protect; release pops that same object in stack order and
+increments the component. `None` denotes global protection. Initially absent
+competitors are also represented by `None`; enabling IRQs, local multitasking
+or remote CPUs removes the corresponding global protection.
+
+For every visible domain that requires protection, dispatch checks both the
+count and the stack. The count must satisfy the safety boundary, and the stack
+must contain either `None` or the exact target instance, compared by identity.
+Matching references can appear anywhere in the stack. Invisible domains and
+domains permitted by a legacy requirement do not need a matching reference.
+Transparent routing actions therefore remain callable before their nested
+actions acquire the appropriate target protection.
+
+Locks and their guards take an explicit protected target, for example
+`GuardBusyWaitIrqSavePreemption(cv, task)` and
+`GuardBusyWaitPreemption(cv, runq)`. Their IRQ and preemption components push
+`None`, while their busy-wait components push the target. Yielding locks push
+their target in each domain they protect. An explicit `None` target represents
+global protection; console flushing currently uses this abstraction for its
+shared critical region.
+
+Copying a vector copies the four lists independently and retains the protected
+object references. Numerical comparison and `min()` do not combine protection
+stacks; invariant checks always consult the original environment stacks.
+IRQ save/restore uses `IrqFlags`, which saves both the level and the IRQ stack
+so that nested guards restore the surrounding protection without changing
+other domains. These stacks describe the current task's derivation path;
+the engine does not simulate concurrent lock owners.
+
 After all legacy declarations have been migrated, `requires_cv` will be removed
 and every target will use the fixed exclusive safety boundary `EXCLUSIVE_CV`:
 

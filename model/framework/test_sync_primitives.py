@@ -16,7 +16,9 @@ from framework.sync_primitives import (
     GuardYieldLock,
     GuardYieldTryLock,
     LocalIrq,
+    LocalMultiTasks,
     Preemption,
+    RemoteCpus,
 )
 
 DOMAINS = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
@@ -115,7 +117,7 @@ def test_busy_wait_guard_preserves_local_contention_and_restores_remote_domains(
         remote_tasks=initial,
     )
 
-    with GuardBusyWaitLock(cv):
+    with GuardBusyWaitLock(cv, object()):
         assert cv.local_irq == initial
         assert cv.local_tasks == initial
         assert cv.remote_irq == initial - 1
@@ -127,7 +129,10 @@ def test_busy_wait_guard_preserves_local_contention_and_restores_remote_domains(
 def test_busy_wait_guard_restores_state_and_propagates_action_assertion():
     cv = ContentionVector.ones()
 
-    with pytest.raises(AssertionError, match="action failed"), GuardBusyWaitLock(cv):
+    with (
+        pytest.raises(AssertionError, match="action failed"),
+        GuardBusyWaitLock(cv, object()),
+    ):
         assert (cv.local_irq, cv.local_tasks, cv.remote_irq, cv.remote_tasks) == (
             1,
             1,
@@ -145,12 +150,12 @@ def test_busy_wait_irq_flags_are_independent_for_nested_acquisitions(
     lock_type, initial_irq
 ):
     cv = ContentionVector(local_irq=initial_irq)
-    lock = lock_type()
+    lock = lock_type(object())
 
     outer_flags = lock.lock(cv)
-    assert outer_flags == initial_irq
+    assert outer_flags.level == initial_irq
     inner_flags = lock.lock(cv)
-    assert inner_flags == initial_irq - 1
+    assert inner_flags.level == initial_irq - 1
 
     lock.unlock(cv, inner_flags)
     assert cv.local_irq == initial_irq - 1
@@ -175,17 +180,24 @@ def test_combined_busy_wait_guards_nest_and_restore_existing_protection(
     guard_type, held
 ):
     cv = ContentionVector.zeros()
+    initial_stacks = {domain: list(cv.stacks[domain]) for domain in DOMAINS}
 
-    with guard_type(cv):
+    with guard_type(cv, object()):
+        outer_stacks = {domain: list(cv.stacks[domain]) for domain in DOMAINS}
         assert tuple(getattr(cv, domain) for domain in DOMAINS) == held
-        with pytest.raises(RuntimeError, match="inner action failed"), guard_type(cv):
+        with (
+            pytest.raises(RuntimeError, match="inner action failed"),
+            guard_type(cv, object()),
+        ):
             assert tuple(getattr(cv, domain) for domain in DOMAINS) == tuple(
                 value * 2 for value in held
             )
             raise RuntimeError("inner action failed")
         assert tuple(getattr(cv, domain) for domain in DOMAINS) == held
+        assert cv.stacks == outer_stacks
 
     assert all(getattr(cv, domain) == 0 for domain in DOMAINS)
+    assert cv.stacks == initial_stacks
 
 
 @pytest.mark.parametrize(
@@ -201,7 +213,7 @@ def test_combined_busy_wait_guards_restore_on_exception_and_keep_body_changes(
 ):
     cv = ContentionVector.ones()
 
-    with pytest.raises(RuntimeError, match="action failed"), guard_type(cv):
+    with pytest.raises(RuntimeError, match="action failed"), guard_type(cv, object()):
         cv.local_irq -= 2
         cv.local_tasks += 2
         cv.remote_irq += 3
@@ -265,7 +277,7 @@ def test_combined_busy_wait_guards_protect_acquisition_and_release_in_order(
         BusyWaitLock, "unlock", lambda self, cv: events.append("unlock")
     )
 
-    with guard_type(ContentionVector.ones()):
+    with guard_type(ContentionVector.ones(), object()):
         events.append("body")
 
     assert events == expected
@@ -277,10 +289,10 @@ def test_nested_yield_lock_guards_restore_task_contention(local_tasks, remote_ta
         local_irq=0, local_tasks=local_tasks, remote_tasks=remote_tasks
     )
 
-    with GuardYieldLock(cv):
+    with GuardYieldLock(cv, object()):
         assert (cv.local_tasks, cv.remote_tasks) == (local_tasks - 1, remote_tasks - 1)
         assert (cv.local_irq, cv.remote_irq) == (0, 1)
-        with GuardYieldLock(cv):
+        with GuardYieldLock(cv, object()):
             assert (cv.local_tasks, cv.remote_tasks) == (
                 local_tasks - 2,
                 remote_tasks - 2,
@@ -296,7 +308,7 @@ def test_nested_yield_lock_guards_restore_task_contention(local_tasks, remote_ta
 def test_yield_guard_restores_on_assertion_without_reverting_body_changes(guard_type):
     cv = ContentionVector.ones()
 
-    with pytest.raises(AssertionError, match="action failed"), guard_type(cv):
+    with pytest.raises(AssertionError, match="action failed"), guard_type(cv, object()):
         cv.remote_tasks += 2
         cv.local_irq -= 1
         assert False, "action failed"
@@ -314,10 +326,41 @@ def test_nested_yield_try_lock_guards_restore_all_domains(initial):
         remote_tasks=initial,
     )
 
-    with GuardYieldTryLock(cv):
+    with GuardYieldTryLock(cv, object()):
         assert all(getattr(cv, domain) == initial - 1 for domain in DOMAINS)
-        with GuardYieldTryLock(cv):
+        with GuardYieldTryLock(cv, object()):
             assert all(getattr(cv, domain) == initial - 2 for domain in DOMAINS)
         assert all(getattr(cv, domain) == initial - 1 for domain in DOMAINS)
 
     assert all(getattr(cv, domain) == initial for domain in DOMAINS)
+
+
+def test_irq_restore_recovers_saved_target_stack_and_preserves_other_domains():
+    cv = ContentionVector.ones()
+    target = object()
+    irq = LocalIrq()
+
+    with GuardYieldTryLock(cv, target):
+        flags = irq.save(cv)
+        irq.disable(cv)
+        with GuardPreemption(cv):
+            irq.restore(cv, flags)
+            assert cv.local_irq == 0
+            assert cv.stacks["local_irq"] == [target]
+            assert cv.stacks["local_tasks"] == [target, None]
+            assert cv.stacks["remote_irq"] == [target]
+            assert cv.stacks["remote_tasks"] == [target]
+
+    assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
+    assert all(not cv.stacks[domain] for domain in DOMAINS)
+
+
+def test_enabling_competitors_removes_initial_global_protection():
+    cv = ContentionVector.zeros()
+
+    LocalMultiTasks().enable(cv)
+    RemoteCpus().enable(cv)
+    LocalIrq().enable(cv)
+
+    assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
+    assert all(not cv.stacks[domain] for domain in DOMAINS)

@@ -42,7 +42,7 @@ class RunQueue(System):
 
     @visibility(TRANSPARENT_CV)
     def activate_task(self, sig: Signal):
-        with GuardBusyWaitPreemption(sig.env.cv):
+        with GuardBusyWaitPreemption(sig.env.cv, self):
             self.drive(
                 sig.env,
                 self,

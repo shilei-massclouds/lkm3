@@ -1,13 +1,18 @@
 """Contention vectors and presets for environments and target visibility."""
 
+from typing import Self
+
+DOMAINS = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
+
 
 # A vector is used either for environment contention and required safety
 # boundaries, or for target visibility; these roles use separate named values.
 class ContentionVector:
     """Signed contention levels, compared independently in each domain.
 
-    Zero represents safety from exclusive access. Negative levels represent
-    redundant protection and are also safe for exclusive requirements.
+    Protection stacks record the objects protected in each domain. ``None``
+    represents global protection, including initially absent competitors.
+    Negative levels represent redundant protection.
     """
 
     local_irq: int
@@ -29,6 +34,51 @@ class ContentionVector:
         self.local_tasks = default if local_tasks is None else local_tasks
         self.remote_irq = default if remote_irq is None else remote_irq
         self.remote_tasks = default if remote_tasks is None else remote_tasks
+        self.stacks: dict[str, list[object | None]] = {
+            domain: [None] * max(0, 1 - getattr(self, domain)) for domain in DOMAINS
+        }
+
+    def __copy__(self) -> Self:
+        """Copy counts and stacks, preserving the identity of protected objects."""
+        result = type(self)(**{domain: getattr(self, domain) for domain in DOMAINS})
+        result.stacks = {domain: list(self.stacks[domain]) for domain in DOMAINS}
+        return result
+
+    def protect(self, target: object | None, *domains: str) -> None:
+        """Reduce contention and push the protected target in each domain."""
+        for domain in domains:
+            self.stacks[domain].append(target)
+            setattr(self, domain, getattr(self, domain) - 1)
+
+    def unprotect(self, target: object | None, *domains: str) -> None:
+        """Release protection in stack order and increase contention."""
+        for domain in domains:
+            stack = self.stacks[domain]
+            assert stack and stack[-1] is target, (
+                f"protection release out of order for {domain}"
+            )
+        for domain in domains:
+            self.stacks[domain].pop()
+            setattr(self, domain, getattr(self, domain) + 1)
+
+    def expose(self, *domains: str) -> None:
+        """Enable competitors, removing any surrounding global protection."""
+        for domain in domains:
+            stack = self.stacks[domain]
+            assert not stack or stack[-1] is None, (
+                f"cannot enable competitors under target protection for {domain}"
+            )
+        for domain in domains:
+            if self.stacks[domain]:
+                self.stacks[domain].pop()
+            setattr(self, domain, getattr(self, domain) + 1)
+
+    def protects(self, domain: str, target: object) -> bool:
+        """Check global protection or a reference to this exact target."""
+        return any(
+            protected is None or protected is target
+            for protected in self.stacks[domain]
+        )
 
     def __repr__(self) -> str:
         return (
@@ -48,12 +98,15 @@ class ContentionVector:
 
     def min(self, other: ContentionVector) -> ContentionVector:
         """Return the minimum in each domain without changing either input."""
-        return ContentionVector(
+        result = ContentionVector(
             local_irq=min(self.local_irq, other.local_irq),
             local_tasks=min(self.local_tasks, other.local_tasks),
             remote_irq=min(self.remote_irq, other.remote_irq),
             remote_tasks=min(self.remote_tasks, other.remote_tasks),
         )
+        # Numerical projections do not establish runtime protection.
+        result.stacks = {domain: [] for domain in DOMAINS}
+        return result
 
     def __le__(self, other: ContentionVector) -> bool:
         if not isinstance(other, ContentionVector):

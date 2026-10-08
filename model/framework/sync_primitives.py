@@ -1,5 +1,6 @@
 """Synchronization primitives and scoped guards for contention adjustments."""
 
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Self
 
@@ -10,33 +11,50 @@ class SyncPrimitive:
     pass
 
 
+@dataclass(frozen=True)
+class IrqFlags:
+    """The saved IRQ contention level and its protection stack."""
+
+    level: int
+    stack: tuple[object | None, ...]
+
+
 class LocalIrq(SyncPrimitive):
     """Adjust local IRQ contention by one, allowing negative levels."""
 
     def enable(self, cv: ContentionVector):
-        cv.local_irq += 1
+        cv.expose("local_irq")
 
     def disable(self, cv: ContentionVector):
-        cv.local_irq -= 1
+        cv.protect(None, "local_irq")
 
-    def save(self, cv: ContentionVector) -> int:
-        """Save local IRQ contention and reduce it by one."""
-        flags = cv.local_irq
+    def save(self, cv: ContentionVector) -> IrqFlags:
+        """Save the IRQ level and stack, then establish global protection."""
+        flags = IrqFlags(cv.local_irq, tuple(cv.stacks["local_irq"]))
         self.disable(cv)
         return flags
 
-    def restore(self, cv: ContentionVector, flags: int):
-        cv.local_irq = flags
+    def restore(self, cv: ContentionVector, flags: IrqFlags):
+        stack = cv.stacks["local_irq"]
+        saved_depth = len(flags.stack)
+        assert len(stack) >= saved_depth and all(
+            current is saved for current, saved in zip(stack[:saved_depth], flags.stack)
+        ), "saved IRQ protection is no longer held"
+        assert all(target is None for target in stack[saved_depth:]), (
+            "cannot restore IRQ state under target protection"
+        )
+        cv.local_irq = flags.level
+        stack[:] = flags.stack
 
 
 class Preemption(SyncPrimitive):
     """Adjust local task contention for preemption, allowing negative levels."""
 
     def enable(self, cv: ContentionVector):
-        cv.local_tasks += 1
+        cv.expose("local_tasks")
 
     def disable(self, cv: ContentionVector):
-        cv.local_tasks -= 1
+        cv.protect(None, "local_tasks")
 
 
 class GuardPreemption(Preemption):
@@ -65,19 +83,21 @@ class BusyWaitLock(SyncPrimitive):
     task that preempts the owner must not busy-wait on its lock.
     """
 
+    def __init__(self, target: object | None):
+        self.target = target
+
     def lock(self, cv: ContentionVector):
-        cv.remote_irq -= 1
-        cv.remote_tasks -= 1
+        cv.protect(self.target, "remote_irq", "remote_tasks")
 
     def unlock(self, cv: ContentionVector):
-        cv.remote_irq += 1
-        cv.remote_tasks += 1
+        cv.unprotect(self.target, "remote_irq", "remote_tasks")
 
 
 class GuardBusyWaitLock(BusyWaitLock):
     """Reduce remote contention for a guarded busy-wait lock and restore it."""
 
-    def __init__(self, cv: ContentionVector):
+    def __init__(self, cv: ContentionVector, target: object | None):
+        super().__init__(target)
         self.cv = cv
 
     def __enter__(self) -> Self:
@@ -100,9 +120,9 @@ class BusyWaitPreemption(SyncPrimitive):
     Local IRQ contention remains unchanged.
     """
 
-    def __init__(self):
+    def __init__(self, target: object | None):
         self._preemption = Preemption()
-        self._lock = BusyWaitLock()
+        self._lock = BusyWaitLock(target)
 
     def lock(self, cv: ContentionVector) -> None:
         self._preemption.disable(cv)
@@ -116,8 +136,8 @@ class BusyWaitPreemption(SyncPrimitive):
 class GuardBusyWaitPreemption(BusyWaitPreemption):
     """Acquire a BusyWaitPreemption lock for a block and release it on exit."""
 
-    def __init__(self, cv: ContentionVector):
-        super().__init__()
+    def __init__(self, cv: ContentionVector, target: object | None):
+        super().__init__(target)
         self.cv = cv
 
     def __enter__(self) -> Self:
@@ -141,16 +161,16 @@ class BusyWaitIrqSave(SyncPrimitive):
     unchanged.
     """
 
-    def __init__(self):
+    def __init__(self, target: object | None):
         self._irq = LocalIrq()
-        self._lock = BusyWaitLock()
+        self._lock = BusyWaitLock(target)
 
-    def lock(self, cv: ContentionVector) -> int:
+    def lock(self, cv: ContentionVector) -> IrqFlags:
         flags = self._irq.save(cv)
         self._lock.lock(cv)
         return flags
 
-    def unlock(self, cv: ContentionVector, flags: int) -> None:
+    def unlock(self, cv: ContentionVector, flags: IrqFlags) -> None:
         self._lock.unlock(cv)
         self._irq.restore(cv, flags)
 
@@ -158,10 +178,10 @@ class BusyWaitIrqSave(SyncPrimitive):
 class GuardBusyWaitIrqSave(BusyWaitIrqSave):
     """Acquire a BusyWaitIrqSave lock for a block and restore its IRQ flags."""
 
-    def __init__(self, cv: ContentionVector):
-        super().__init__()
+    def __init__(self, cv: ContentionVector, target: object | None):
+        super().__init__(target)
         self.cv = cv
-        self._flags: int
+        self._flags: IrqFlags
 
     def __enter__(self) -> Self:
         self._flags = self.lock(self.cv)
@@ -185,18 +205,18 @@ class BusyWaitIrqSavePreemption(SyncPrimitive):
     to the caller.
     """
 
-    def __init__(self):
+    def __init__(self, target: object | None):
         self._irq = LocalIrq()
         self._preemption = Preemption()
-        self._lock = BusyWaitLock()
+        self._lock = BusyWaitLock(target)
 
-    def lock(self, cv: ContentionVector) -> int:
+    def lock(self, cv: ContentionVector) -> IrqFlags:
         flags = self._irq.save(cv)
         self._preemption.disable(cv)
         self._lock.lock(cv)
         return flags
 
-    def unlock(self, cv: ContentionVector, flags: int) -> None:
+    def unlock(self, cv: ContentionVector, flags: IrqFlags) -> None:
         self._lock.unlock(cv)
         self._irq.restore(cv, flags)
         self._preemption.enable(cv)
@@ -205,10 +225,10 @@ class BusyWaitIrqSavePreemption(SyncPrimitive):
 class GuardBusyWaitIrqSavePreemption(BusyWaitIrqSavePreemption):
     """Acquire the combined lock for a block and restore its protection on exit."""
 
-    def __init__(self, cv: ContentionVector):
-        super().__init__()
+    def __init__(self, cv: ContentionVector, target: object | None):
+        super().__init__(target)
         self.cv = cv
-        self._flags: int
+        self._flags: IrqFlags
 
     def __enter__(self) -> Self:
         self._flags = self.lock(self.cv)
@@ -227,13 +247,12 @@ class LocalMultiTasks(SyncPrimitive):
     """Model the one-way transition from a single task to local multitasking."""
 
     def enable(self, cv: ContentionVector):
-        cv.local_tasks += 1
+        cv.expose("local_tasks")
 
 
 class RemoteCpus(SyncPrimitive):
     def enable(self, cv: ContentionVector):
-        cv.remote_irq += 1
-        cv.remote_tasks += 1
+        cv.expose("remote_irq", "remote_tasks")
 
 
 class GuardLocalIrq(LocalIrq):
@@ -241,7 +260,7 @@ class GuardLocalIrq(LocalIrq):
 
     def __init__(self, cv: ContentionVector):
         self.cv = cv
-        self._flags: int
+        self._flags: IrqFlags
 
     def __enter__(self) -> Self:
         self._flags = self.save(self.cv)
@@ -263,13 +282,14 @@ class YieldLock(SyncPrimitive):
     remains unchanged because the yielding operation is for task context.
     """
 
+    def __init__(self, target: object | None):
+        self.target = target
+
     def lock(self, cv: ContentionVector):
-        cv.local_tasks -= 1
-        cv.remote_tasks -= 1
+        cv.protect(self.target, "local_tasks", "remote_tasks")
 
     def unlock(self, cv: ContentionVector):
-        cv.local_tasks += 1
-        cv.remote_tasks += 1
+        cv.unprotect(self.target, "local_tasks", "remote_tasks")
 
 
 class YieldTryLock(YieldLock):
@@ -286,19 +306,18 @@ class YieldTryLock(YieldLock):
 
     def lock(self, cv: ContentionVector):
         super().lock(cv)
-        cv.local_irq -= 1
-        cv.remote_irq -= 1
+        cv.protect(self.target, "local_irq", "remote_irq")
 
     def unlock(self, cv: ContentionVector):
-        cv.local_irq += 1
-        cv.remote_irq += 1
+        cv.unprotect(self.target, "local_irq", "remote_irq")
         super().unlock(cv)
 
 
 class GuardYieldLock(YieldLock):
     """Acquire a YieldLock for a guarded block and release it on exit."""
 
-    def __init__(self, cv: ContentionVector):
+    def __init__(self, cv: ContentionVector, target: object | None):
+        super().__init__(target)
         self.cv = cv
 
     def __enter__(self) -> Self:
@@ -317,7 +336,8 @@ class GuardYieldLock(YieldLock):
 class GuardYieldTryLock(YieldTryLock):
     """Acquire a YieldTryLock for a guarded block and release it on exit."""
 
-    def __init__(self, cv: ContentionVector):
+    def __init__(self, cv: ContentionVector, target: object | None):
+        super().__init__(target)
         self.cv = cv
 
     def __enter__(self) -> Self:

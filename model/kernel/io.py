@@ -84,5 +84,6 @@ class Io(System):
         with GuardLocalIrq(sig.env.cv):
             self.drive(sig.env, gv.prb, "store", msg=sig.args["msg"])
 
-        with GuardPreemption(sig.env.cv), GuardYieldTryLock(sig.env.cv):
+        # Console flushing is currently modeled as one global critical region.
+        with GuardPreemption(sig.env.cv), GuardYieldTryLock(sig.env.cv, None):
             self.drive(sig.env, gv.console_list, "flush_all")

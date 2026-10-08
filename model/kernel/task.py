@@ -68,7 +68,7 @@ class Task(System):
 
     @visibility(TRANSPARENT_CV)
     def wake_up_new_task(self, sig: Signal):
-        with GuardBusyWaitIrqSavePreemption(sig.env.cv):
+        with GuardBusyWaitIrqSavePreemption(sig.env.cv, self):
             self.drive(
                 sig.env,
                 self._scheduler(),
