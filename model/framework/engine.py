@@ -120,8 +120,9 @@ class System:
         effective_cv = env.cv.min(self.resolve_visibility(action))
         requirement = self.resolve_requires_cv(action)
         if env_enabled("DEBUG"):
+            debug_action = action or "check_invariant"
             print(
-                self.format_invariant(env, f"[DEBUG] {self}.check_invariant:", action),
+                self.format_invariant(env, f"[DEBUG] {self}.{debug_action}:", action),
                 file=sys.stderr,
             )
         return effective_cv <= requirement
@@ -148,18 +149,33 @@ class System:
     ) -> str:
         """Format the invariant inputs and optional violations with call indentation."""
         indent = "    " * env.depth
+        visibility = self.resolve_visibility(action)
+        effective_cv = env.cv.min(visibility)
+        vectors = {
+            "environment": env.cv,
+            "visibility": visibility,
+            "effective": effective_cv,
+        }
+        domains = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
+        widths = {
+            domain: max(
+                len(str(getattr(vector, domain))) for vector in vectors.values()
+            )
+            for domain in domains
+        }
+        rows = []
+        for label, vector in vectors.items():
+            values = ", ".join(
+                f"{domain}={getattr(vector, domain):>{widths[domain]}}"
+                for domain in domains
+            )
+            rows.append(f"{indent}    {label:<11} = ({values})")
         violations = (
             f"{indent}    violated domains: {', '.join(self.violated_domains(env, action))}\n"
             if show_violations
             else ""
         )
-        return (
-            f"{indent}{header}\n"
-            f"{violations}"
-            f"{indent}    cv={env.cv}\n"
-            f"{indent}    visibility={self.resolve_visibility(action)}\n"
-            f"{indent}    requires_cv={self.resolve_requires_cv(action)}"
-        )
+        return f"{indent}{header}\n{violations}" + "\n".join(rows)
 
 
 def requires_cv[T: type[System] | Callable[..., Any]](
