@@ -155,12 +155,12 @@ class Scheduler(System):
         from kernel.task import TaskState
 
         task = self._require_current(sig.env)
-        finishing = sig.args.get("finish", False)
+        exiting = sig.args.get("exiting", False)
         blocked = sig.args.get("block", False)
-        assert not (finishing and blocked), "finishing task cannot block"
+        assert not (exiting and blocked), "exiting task cannot block"
         assert task is not self.idle or not blocked, "idle task cannot block"
 
-        if finishing:
+        if exiting:
             assert task is not self.idle, "idle task cannot exit through the scheduler"
             task.state = TaskState.FINISHED
         elif blocked:
@@ -182,7 +182,7 @@ class Scheduler(System):
         self.current = next_task
         assert next_task.greenlet is not None
 
-        if finishing:
+        if exiting:
             assert task.greenlet is not None
             # Returning makes the source greenlet dead and resumes the target.
             task.greenlet.parent = next_task.greenlet
@@ -204,7 +204,7 @@ class Scheduler(System):
             )
 
     @visibility(TRANSPARENT_CV)
-    def finish(self, sig: Signal):
+    def exit(self, sig: Signal):
         """Select the task that receives control when this task returns."""
         with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
-            self.drive(sig.env, self, "switch", finish=True)
+            self.drive(sig.env, self, "switch", exiting=True)

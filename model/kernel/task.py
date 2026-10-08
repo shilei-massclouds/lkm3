@@ -12,8 +12,6 @@ from framework.sync import (
     EXCLUSIVE_CV,
     TASKPRIVATE_CV,
     ContentionVector,
-    GuardLocalIrq,
-    GuardPreemption,
 )
 
 
@@ -71,11 +69,9 @@ class Task(System):
         self.drive(sig.env, self._scheduler(), "wake_up_new_task", task=self)
 
     def _run(self, _previous_result: object = None):
-        # A finishing task can start this greenlet by returning its result to it.
+        # Run the task flow, then return control to the scheduler on exit.
         self.drive(self.env, self.flow, self.action)
-        if self.pid != 0:
-            with GuardLocalIrq(self.env.cv), GuardPreemption(self.env.cv):
-                self.drive(self.env, self._scheduler(), "finish")
+        self.drive(self.env, self._scheduler(), "exit")
 
 
 class BootInitTask(Task):
@@ -96,7 +92,7 @@ class BootInitTask(Task):
 
         self.greenlet = getcurrent()
         self.state = TaskState.RUNNING
-        self._run()
+        self.drive(self.env, self.flow, self.action)
         self.state = TaskState.FINISHED
 
 
