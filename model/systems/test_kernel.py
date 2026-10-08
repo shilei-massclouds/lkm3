@@ -7,6 +7,7 @@ from flows.boot_init_flow import BootInitFlow
 from flows.kernel_init_flow import KernelInitFlow
 from framework.engine import Signal, TaskLocalEnv, visibility
 from framework.scheduler import Scheduler
+from framework.sync import TRANSPARENT_CV
 from global_vars import GlobalVars, gv
 from kernel.task import BootInitTask, TaskState
 from main import main
@@ -57,6 +58,7 @@ def test_kernel_boot_starts_before_scheduler_and_terminates_at_boot_userapp(
         assert not hasattr(self, "context")
         events.append("scheduler initialized")
 
+    @visibility(TRANSPARENT_CV)
     def observe_schedule(self: Scheduler, sig: Signal):
         assert sig.env.task is gv.boot_init_task
         assert [task.pid for task in self.runq] == [1, 2]
@@ -160,7 +162,7 @@ def test_finite_idle_keeps_scheduling_and_wakes_blocked_init_while_kthreadd_wait
         assert not scheduler.runq
         assert init.state is kthreadd.state is TaskState.BLOCKED
         assert kthreadd.greenlet is not None and not kthreadd.greenlet.dead
-        assert kthreadd.env.depth == 2 and len(kthreadd.env.signal_queues) == 2
+        assert kthreadd.env.depth == 3 and len(kthreadd.env.signal_queues) == 3
         assert sig.env.cv.local_tasks == 0
         events.append("idle")
         self.drive(sig.env, scheduler, "wake", task=init)
@@ -190,7 +192,7 @@ def test_finite_idle_keeps_scheduling_and_wakes_blocked_init_while_kthreadd_wait
         assert task is not None
         assert task.state is TaskState.BLOCKED
         assert task.greenlet is not None and not task.greenlet.dead
-        assert task.env.depth == 2 and len(task.env.signal_queues) == 2
+        assert task.env.depth == 3 and len(task.env.signal_queues) == 3
 
 
 def test_main_propagates_boundary_termination(capsys):

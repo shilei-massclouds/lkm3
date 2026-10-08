@@ -7,7 +7,7 @@ from greenlet import getcurrent, gettrace, greenlet, settrace
 
 from flows.task_flow import TaskFlow
 from framework.engine import Signal, System, TaskLocalEnv
-from framework.scheduler import Scheduler
+from framework.scheduler import RunQueue, Scheduler
 from framework.sync import ContentionVector, GuardLocalIrq
 from kernel.task import BootInitTask, Task, TaskState
 
@@ -33,6 +33,23 @@ def prepare(source: System, env: TaskLocalEnv, task: Task, *, enable: bool = Tru
     source.drive(env, task, "setup")
     if enable:
         source.drive(env, task, "enable")
+
+
+def test_scheduler_uses_a_fullscope_run_queue_boundary():
+    scheduler = Scheduler()
+
+    assert isinstance(scheduler.runq, RunQueue)
+    for action in ("enqueue", "select"):
+        visible = scheduler.runq.resolve_visibility(action)
+        assert all(
+            getattr(visible, domain) == 1
+            for domain in (
+                "local_irq",
+                "local_tasks",
+                "remote_irq",
+                "remote_tasks",
+            )
+        )
 
 
 def test_task_flow_instances_cannot_be_shared(runtime):
@@ -167,14 +184,14 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
             suspended[task.name] = (env, queues)
             with GuardLocalIrq(env.cv):
                 irq = env.cv.local_irq
-                assert idle.env.depth == 1 and len(idle.env.signal_queues) == 1
-                assert idle.env.cv.local_irq == 0
+                assert idle.env.depth == 2 and len(idle.env.signal_queues) == 2
+                assert idle.env.cv.local_irq == -1
                 if task.name == "b":
                     other_env, other_queues = suspended["a"]
                     assert other_env is not env and other_env.cv is not env.cv
-                    assert other_env.depth == 3
-                    assert other_env.cv.local_irq == -1
-                    assert len(other_env.signal_queues) == 3
+                    assert other_env.depth == 4
+                    assert other_env.cv.local_irq == -2
+                    assert len(other_env.signal_queues) == 4
                     assert all(
                         actual is saved
                         for actual, saved in zip(other_env.signal_queues, other_queues)
@@ -261,7 +278,7 @@ def test_task_lifecycle_rejects_invalid_setup_and_enable(runtime):
         source.drive(env, task, "enable")
     foreign = Task("foreign", EmptyFlow(), "start", LOCAL_CV, Scheduler())
     with pytest.raises(AssertionError, match="different scheduler"):
-        source.drive(env, scheduler, "enqueue", task=foreign)
+        source.drive(env, scheduler, "wake_up_new_task", task=foreign)
     assert list(scheduler.runq) == [task]
     source.drive(env, scheduler, "schedule")
     with pytest.raises(AssertionError, match="already ended"):
@@ -302,11 +319,13 @@ def test_schedule_rejects_bootstrap_foreign_task_and_forged_environments(runtime
 def test_management_actions_reject_remote_contention(domain, action):
     scheduler = Scheduler()
     task = Task("task", EmptyFlow(), "start", LOCAL_CV, scheduler)
-    cv = ContentionVector(zero=True, local_irq=1, local_tasks=1)
+    cv = ContentionVector(zero=True)
     setattr(cv, domain, 1)
     env = TaskLocalEnv(cv)
+    target = scheduler.runq if action == "enqueue" else scheduler
+    kwargs = {"task": task} if action == "enqueue" else {}
     with pytest.raises(AssertionError, match=f"violated domains: {domain}"):
-        System().drive(env, scheduler, action, task=task)
+        System().drive(env, target, action, **kwargs)
     assert env.depth == 0 and env.signal_queues == []
 
 
@@ -435,8 +454,8 @@ def test_blocked_task_leaves_run_queue_and_resumes_when_woken(runtime):
     assert events == ["blocked"]
     assert task.state is TaskState.BLOCKED
     assert task.greenlet is not None and not task.greenlet.dead
-    assert task.env.depth == 2 and len(task.env.signal_queues) == 2
-    assert task.env.cv.local_irq == 0
+    assert task.env.depth == 3 and len(task.env.signal_queues) == 3
+    assert task.env.cv.local_irq == -1
     assert scheduler.current is idle and not scheduler.runq
     source.drive(idle.env, scheduler, "schedule")
     assert events == ["blocked"]

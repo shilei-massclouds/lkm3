@@ -1,24 +1,97 @@
 """Select and switch tasks on the calling task's stack."""
 
+from __future__ import annotations
+
 from collections import deque
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from greenlet import getcurrent
 
-from framework.engine import Signal, System, TaskLocalEnv, requires_cv
-from framework.sync import ContentionVector
+from framework.engine import Signal, System, TaskLocalEnv, visibility
+from framework.sync import TRANSPARENT_CV, GuardLocalIrq, GuardPreemption
 
 if TYPE_CHECKING:
     from kernel.task import Task
 
 
-@requires_cv(ContentionVector(zero=True, local_irq=1, local_tasks=1))
+@dataclass
+class RunQueue(System):
+    """The scheduler's task queue and its exclusive mutation boundary."""
+
+    scheduler: Scheduler | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _queue: deque[Task] = field(default_factory=deque, init=False, repr=False)
+    selected: Task | None = field(default=None, init=False, repr=False)
+
+    def __iter__(self) -> Iterator[Task]:
+        return iter(self._queue)
+
+    def __len__(self) -> int:
+        return len(self._queue)
+
+    def __bool__(self) -> bool:
+        return bool(self._queue)
+
+    def enqueue(self, sig: Signal):
+        """Publish a prepared, blocked, or yielding task to the queue."""
+        from kernel.task import Task, TaskState
+
+        if self.scheduler is not None:
+            self.scheduler._require_current(sig.env)
+
+        task = sig.args["task"]
+        assert isinstance(task, Task), "queue entry must be a task"
+        if self.scheduler is not None:
+            assert task.scheduler is self.scheduler, (
+                "task belongs to a different scheduler"
+            )
+            assert task is not self.scheduler.idle, (
+                "idle task cannot be queued as an ordinary task"
+            )
+        assert task.greenlet is not None, "task has not been set up"
+        assert not task.greenlet.dead and task.state is not TaskState.FINISHED, (
+            "task has already ended"
+        )
+
+        expected_state = sig.args.get("expected_state")
+        if expected_state is None:
+            assert task.state not in (TaskState.READY, TaskState.RUNNING), (
+                "task is already queued or running"
+            )
+            expected_state = task.state
+        operation = {
+            TaskState.PREPARED: "enable",
+            TaskState.BLOCKED: "wake",
+            TaskState.RUNNING: "schedule",
+        }.get(expected_state, "queue")
+        assert task.state is expected_state, f"task is not ready to {operation}"
+        task.state = TaskState.READY
+        self._queue.append(task)
+
+    def select(self, sig: Signal):
+        """Select the next ready task, falling back to the idle task."""
+        from kernel.task import Task, TaskState
+
+        idle = sig.args["idle"]
+        assert isinstance(idle, Task), "scheduler has no idle task"
+        task = self._queue.popleft() if self._queue else idle
+        assert task.state is TaskState.READY
+        assert task.greenlet is not None and not task.greenlet.dead
+        task.state = TaskState.RUNNING
+        self.selected = task
+
+
 @dataclass
 class Scheduler(System):
-    runq: deque[Task] = field(default_factory=deque, init=False, repr=False)
+    runq: RunQueue = field(default_factory=RunQueue, init=False, repr=False)
     current: Task | None = field(default=None, init=False, repr=False)
     idle: Task | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self):
+        self.runq.scheduler = self
 
     def setup(self, sig: Signal):
         from kernel.task import TaskState
@@ -51,67 +124,87 @@ class Scheduler(System):
         ), "operation must be called by the current task"
         return task
 
-    def _queue(self, sig: Signal, expected_state, operation: str):
-        from kernel.task import Task, TaskState
-
-        self._require_current(sig.env)
-        task = sig.args["task"]
-        assert isinstance(task, Task) and task.scheduler is self, (
-            "task belongs to a different scheduler"
-        )
-        assert task is not self.idle, "idle task cannot be queued as an ordinary task"
-        assert task.greenlet is not None, "task has not been set up"
-        assert not task.greenlet.dead and task.state is not TaskState.FINISHED, (
-            "task has already ended"
-        )
-        assert task.state is expected_state, f"task is not ready to {operation}"
-        task.state = TaskState.READY
-        self.runq.append(task)
-
-    def enqueue(self, sig: Signal):
+    @visibility(TRANSPARENT_CV)
+    def wake_up_new_task(self, sig: Signal):
         from kernel.task import TaskState
 
-        self._queue(sig, TaskState.PREPARED, "enable")
+        with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
+            self.drive(
+                sig.env,
+                self.runq,
+                "enqueue",
+                task=sig.args["task"],
+                expected_state=TaskState.PREPARED,
+            )
 
+    @visibility(TRANSPARENT_CV)
     def wake(self, sig: Signal):
         from kernel.task import TaskState
 
-        self._queue(sig, TaskState.BLOCKED, "wake")
+        with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
+            self.drive(
+                sig.env,
+                self.runq,
+                "enqueue",
+                task=sig.args["task"],
+                expected_state=TaskState.BLOCKED,
+            )
 
-    def _select_next(self) -> Task:
-        from kernel.task import TaskState
-
-        task = self.runq.popleft() if self.runq else self.idle
-        assert task is not None and task.state is TaskState.READY
-        assert task.greenlet is not None and not task.greenlet.dead
-        self.current = task
-        task.state = TaskState.RUNNING
-        return task
-
-    def schedule(self, sig: Signal):
+    def switch(self, sig: Signal):
+        """Perform one protected scheduling transition."""
         from kernel.task import TaskState
 
         task = self._require_current(sig.env)
+        finishing = sig.args.get("finish", False)
         blocked = sig.args.get("block", False)
+        assert not (finishing and blocked), "finishing task cannot block"
         assert task is not self.idle or not blocked, "idle task cannot block"
-        task.state = TaskState.BLOCKED if blocked else TaskState.READY
-        if task is not self.idle and not blocked:
-            self.runq.append(task)
-        next_task = self._select_next()
+
+        if finishing:
+            assert task is not self.idle, "idle task cannot exit through the scheduler"
+            task.state = TaskState.FINISHED
+        elif blocked:
+            task.state = TaskState.BLOCKED
+        elif task is self.idle:
+            task.state = TaskState.READY
+        else:
+            self.drive(
+                sig.env,
+                self.runq,
+                "enqueue",
+                task=task,
+                expected_state=TaskState.RUNNING,
+            )
+
+        self.drive(sig.env, self.runq, "select", idle=self.idle)
+        next_task = self.runq.selected
+        assert next_task is not None
+        self.current = next_task
+        assert next_task.greenlet is not None
+
+        if finishing:
+            assert task.greenlet is not None
+            # Returning makes the source greenlet dead and resumes the target.
+            task.greenlet.parent = next_task.greenlet
+            return
+
         if next_task is not task:
-            assert next_task.greenlet is not None
             next_task.greenlet.switch()
         # This call returns only when another task has selected its caller again.
         self._require_current(sig.env)
 
-    def finish(self, env: TaskLocalEnv):
-        """Select the task that receives control when this task's greenlet returns."""
-        from kernel.task import TaskState
+    @visibility(TRANSPARENT_CV)
+    def schedule(self, sig: Signal):
+        with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
+            self.drive(
+                sig.env,
+                self,
+                "switch",
+                block=sig.args.get("block", False),
+            )
 
-        task = self._require_current(env)
-        assert task is not self.idle, "idle task cannot exit through the scheduler"
-        task.state = TaskState.FINISHED
-        next_task = self._select_next()
-        assert task.greenlet is not None and next_task.greenlet is not None
-        # Returning makes the source greenlet dead and resumes the target directly.
-        task.greenlet.parent = next_task.greenlet
+    @visibility(TRANSPARENT_CV)
+    def finish(self, sig: Signal):
+        """Select the task that receives control when this task returns."""
+        with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
+            self.drive(sig.env, self, "switch", finish=True)
