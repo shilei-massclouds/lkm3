@@ -128,6 +128,12 @@ class LocalMultiTasks(SyncPrimitive):
         cv.local_tasks += 1
 
 
+class RemoteCpus(SyncPrimitive):
+    def enable(self, cv: ContentionVector):
+        cv.remote_irq += 1
+        cv.remote_tasks += 1
+
+
 class GuardLocalIrq(LocalIrq):
     """Reduce local IRQ contention by one and restore its saved value on exit."""
 

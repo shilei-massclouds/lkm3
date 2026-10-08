@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from flows.task_flow import TaskFlow
 from framework.engine import Signal
 from framework.scheduler import Scheduler
-from framework.sync import ContentionVector, LocalIrq, LocalMultiTasks, Preemption
-from kernel.task import KernelInitTask, Task
+from framework.sync import LocalIrq, LocalMultiTasks, Preemption
+from kernel.task import KernelInitTask, KThreaddTask
 
 
 @dataclass
@@ -44,25 +44,11 @@ class BootInitFlow(TaskFlow):
         assert gv.kernel_init_task is None and gv.kthreadd_task is None, (
             "initial tasks have already been created"
         )
-        gv.kernel_init_task = KernelInitTask(
-            "kernel_init",
-            gv.kernel_init_flow,
-            "pre_smp",
-            ContentionVector(zero=True, local_irq=1, local_tasks=1),
-            gv.scheduler,
-            pid=1,
-        )
+        gv.kernel_init_task = KernelInitTask()
         self.drive(sig.env, gv.kernel_init_task, "setup")
         self.drive(sig.env, gv.kernel_init_task, "enable")
 
-        gv.kthreadd_task = Task(
-            "kthreadd",
-            gv.kthreadd_flow,
-            "wait_for_work",
-            ContentionVector(zero=True, local_irq=1, local_tasks=1),
-            gv.scheduler,
-            pid=2,
-        )
+        gv.kthreadd_task = KThreaddTask()
         self.drive(sig.env, gv.kthreadd_task, "setup")
         self.drive(sig.env, gv.kthreadd_task, "enable")
 
@@ -73,6 +59,7 @@ class BootInitFlow(TaskFlow):
 
         assert gv.scheduler is not None
         LocalMultiTasks().enable(sig.env.cv)
+        # RemoteCpus().enable(sig.env.cv)
         # Like schedule_preempt_disabled(), task 0 retains disabled preemption.
         Preemption().disable(sig.env.cv)
         self.drive(sig.env, gv.scheduler, "schedule")

@@ -3,13 +3,15 @@
 import pytest
 from greenlet import getcurrent
 
+from flows import boot_init_flow
 from flows.boot_init_flow import BootInitFlow
 from flows.kernel_init_flow import KernelInitFlow
+from flows.kthreadd_flow import KthreaddFlow
 from framework.engine import Signal, TaskLocalEnv, visibility
 from framework.scheduler import Scheduler
 from framework.sync import TRANSPARENT_CV
 from global_vars import GlobalVars, gv
-from kernel.task import BootInitTask, TaskState
+from kernel.task import BootInitTask, KernelInitTask, TaskState
 from main import main
 
 
@@ -84,8 +86,8 @@ def test_kernel_boot_starts_before_scheduler_and_terminates_at_boot_userapp(
     kthreadd = gv.kthreadd_task
     assert init is not None and kthreadd is not None
     assert init.pid == 1 and kthreadd.pid == 2
-    assert init.flow is gv.kernel_init_flow
-    assert kthreadd.flow is gv.kthreadd_flow
+    assert isinstance(init.flow, KernelInitFlow)
+    assert isinstance(kthreadd.flow, KthreaddFlow)
     for task in (gv.boot_init_task, init, kthreadd):
         assert task.scheduler is scheduler
         assert task.env.depth == 0 and task.env.signal_queues == []
@@ -131,7 +133,7 @@ def test_kernel_boot_starts_before_scheduler_and_terminates_at_boot_userapp(
     assert offsets == sorted(offsets)
     assert "enter_idle ->" not in output
     assert "wait_for_work ->" not in output
-    assert "[Reach UserApp]" in output
+    assert "[Terminate: Reach UserApp]" in output
     assert gv.early_console_dev.console.ready
 
 
@@ -149,7 +151,13 @@ def test_finite_idle_keeps_scheduling_and_wakes_blocked_init_while_kthreadd_wait
                 self.drive(sig.env, scheduler, "schedule", block=True)
                 events.append("init resumed")
 
-    gv.kernel_init_flow = WaitingInitFlow()
+    def make_waiting_init_task():
+        task = KernelInitTask()
+        task.flow = WaitingInitFlow()
+        task.flow.claim(task)
+        return task
+
+    monkeypatch.setattr(boot_init_flow, "KernelInitTask", make_waiting_init_task)
     idle_action = BootInitFlow.do_idle
 
     @visibility(gv.boot_init_task.flow.resolve_visibility("do_idle"))
@@ -199,7 +207,7 @@ def test_main_propagates_boundary_termination(capsys):
     with pytest.raises(SystemExit) as exc_info:
         main()
     assert exc_info.value.code == 0
-    assert "[Reach UserApp]" in capsys.readouterr().out
+    assert "[Terminate: Reach UserApp]" in capsys.readouterr().out
 
 
 def test_main_uses_independent_setup_and_boot_environments(monkeypatch):
@@ -254,7 +262,7 @@ def test_global_objects_create_only_task_zero_before_boot_and_reset_after_stop()
     first = GlobalVars()
     second = GlobalVars()
     first.boot_init_task.env.cv.local_irq = 7
-    first_visibility = first.kernel_init_flow.resolve_visibility()
+    first_visibility = first.boot_init_task.flow.resolve_visibility()
     first_visibility.local_irq = 0
     for objects in (first, second):
         assert isinstance(objects.boot_init_task, BootInitTask)
@@ -271,7 +279,7 @@ def test_global_objects_create_only_task_zero_before_boot_and_reset_after_stop()
         )
     assert first.boot_init_task.flow is not second.boot_init_task.flow
     assert second.boot_init_task.env.cv.local_irq == 0
-    assert second.kernel_init_flow.resolve_visibility().local_irq == 0
+    assert second.boot_init_task.flow.resolve_visibility().local_irq == 0
     with pytest.raises(SystemExit) as exc_info:
         main()
     assert exc_info.value.code == 0

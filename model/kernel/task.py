@@ -97,4 +97,30 @@ class BootInitTask(Task):
 
 
 class KernelInitTask(Task):
-    pass
+    def __init__(self):
+        from flows.kernel_init_flow import KernelInitFlow
+        from global_vars import gv
+
+        super().__init__(
+            name="kernel_init",
+            pid=1,
+            flow=KernelInitFlow(),
+            action="pre_smp",
+            cv=ContentionVector(remote_irq=0, remote_tasks=0),
+            scheduler=gv.scheduler,
+        )
+
+
+class KThreaddTask(Task):
+    def __init__(self):
+        from flows.kthreadd_flow import KthreaddFlow
+        from global_vars import gv
+
+        super().__init__(
+            name="kthreadd",
+            pid=2,
+            flow=KthreaddFlow(),
+            action="wait_for_work",
+            cv=ContentionVector(remote_irq=0, remote_tasks=0),
+            scheduler=gv.scheduler,
+        )

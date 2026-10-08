@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 from drivers.console import ConsoleList
 from drivers.earlycon import EarlyCon, EarlyConDrvTable, EarlyConParam
 from drivers.earlycon_riscv_sbi import EarlyConRiscvSBI
-from flows.kernel_init_flow import KernelInitFlow
-from flows.kthreadd_flow import KthreaddFlow
 from framework.scheduler import Scheduler
 from kernel.io import Io, PrintkRingBuffer
 from kernel.params import CmdLine, ParamTable
@@ -25,8 +23,6 @@ class GlobalVars:
     earlycon_riscv_sbi: EarlyConRiscvSBI = field(default_factory=EarlyConRiscvSBI)
     boot_command_line: CmdLine = field(default_factory=CmdLine)
     kernel_param_table: ParamTable = field(default_factory=ParamTable)
-    kernel_init_flow: KernelInitFlow = field(default_factory=KernelInitFlow)
-    kthreadd_flow: KthreaddFlow = field(default_factory=KthreaddFlow)
     scheduler: Scheduler | None = field(default=None, init=False)
     boot_init_task: BootInitTask = field(default_factory=BootInitTask)
     kernel_init_task: KernelInitTask | None = field(default=None, init=False)

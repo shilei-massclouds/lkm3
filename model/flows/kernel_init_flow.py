@@ -12,6 +12,7 @@ class KernelInitFlow(TaskFlow):
         sig.chain(self, "bringup_nonboot_cpus")
 
     def bringup_nonboot_cpus(self, sig: Signal):
+        # RemoteCpus().enable(sig.env.cv)
         sig.chain(self, "final_init")
 
     def final_init(self, sig: Signal):
@@ -20,4 +21,4 @@ class KernelInitFlow(TaskFlow):
     def boot_userapp(self, sig: Signal):
         from framework.engine import terminate
 
-        terminate("\t[Reach UserApp]")
+        terminate("\t[Terminate: Reach UserApp]")
