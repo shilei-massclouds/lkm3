@@ -46,11 +46,11 @@ class BootInitFlow(TaskFlow):
         )
         gv.kernel_init_task = KernelInitTask()
         self.drive(sig.env, gv.kernel_init_task, "setup")
-        self.drive(sig.env, gv.kernel_init_task, "enable")
+        self.drive(sig.env, gv.kernel_init_task, "wake_up_new_task")
 
         gv.kthreadd_task = KThreaddTask()
         self.drive(sig.env, gv.kthreadd_task, "setup")
-        self.drive(sig.env, gv.kthreadd_task, "enable")
+        self.drive(sig.env, gv.kthreadd_task, "wake_up_new_task")
 
         sig.chain(self, "yield_current")
 

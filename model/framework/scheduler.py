@@ -11,7 +11,11 @@ from greenlet import getcurrent
 
 from framework.contention import TRANSPARENT_CV
 from framework.engine import Signal, System, TaskLocalEnv, visibility
-from framework.sync_primitives import GuardLocalIrq, GuardPreemption
+from framework.sync_primitives import (
+    GuardBusyWaitPreemption,
+    GuardLocalIrq,
+    GuardPreemption,
+)
 
 if TYPE_CHECKING:
     from kernel.task import Task
@@ -35,6 +39,17 @@ class RunQueue(System):
 
     def __bool__(self) -> bool:
         return bool(self._queue)
+
+    @visibility(TRANSPARENT_CV)
+    def activate_task(self, sig: Signal):
+        with GuardBusyWaitPreemption(sig.env.cv):
+            self.drive(
+                sig.env,
+                self,
+                "enqueue",
+                task=sig.args["task"],
+                expected_state=sig.args["expected_state"],
+            )
 
     def enqueue(self, sig: Signal):
         """Publish a prepared, blocked, or yielding task to the queue."""
@@ -64,7 +79,7 @@ class RunQueue(System):
             )
             expected_state = task.state
         operation = {
-            TaskState.PREPARED: "enable",
+            TaskState.PREPARED: "wake_up_new_task",
             TaskState.BLOCKED: "wake",
             TaskState.RUNNING: "schedule",
         }.get(expected_state, "queue")
@@ -126,17 +141,20 @@ class Scheduler(System):
         return task
 
     @visibility(TRANSPARENT_CV)
-    def wake_up_new_task(self, sig: Signal):
-        from kernel.task import TaskState
+    def get_rq(self, sig: Signal):
+        from kernel.task import Task, TaskState
 
-        with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
-            self.drive(
-                sig.env,
-                self.runq,
-                "enqueue",
-                task=sig.args["task"],
-                expected_state=TaskState.PREPARED,
-            )
+        self._require_current(sig.env)
+        task = sig.args["task"]
+        assert isinstance(task, Task), "runqueue lookup requires a task"
+        assert task.scheduler is self, "task belongs to a different scheduler"
+        self.drive(
+            sig.env,
+            self.runq,
+            "activate_task",
+            task=task,
+            expected_state=TaskState.PREPARED,
+        )
 
     @visibility(TRANSPARENT_CV)
     def wake(self, sig: Signal):

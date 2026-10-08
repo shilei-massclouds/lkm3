@@ -30,10 +30,10 @@ def runtime():
     return idle, scheduler
 
 
-def prepare(source: System, env: TaskLocalEnv, task: Task, *, enable: bool = True):
+def prepare(source: System, env: TaskLocalEnv, task: Task, *, wake: bool = True):
     source.drive(env, task, "setup")
-    if enable:
-        source.drive(env, task, "enable")
+    if wake:
+        source.drive(env, task, "wake_up_new_task")
 
 
 def test_scheduler_uses_a_fullscope_run_queue_boundary():
@@ -264,26 +264,26 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
     assert lines.count(f"        pending -> {flow_repr}") == 4
 
 
-def test_task_lifecycle_rejects_invalid_setup_and_enable(runtime):
+def test_task_lifecycle_rejects_invalid_setup_and_wake(runtime):
     idle, scheduler = runtime
     source = System()
     env = idle.env
     task = Task("task", EmptyFlow(), "start", LOCAL_CV, scheduler)
     with pytest.raises(AssertionError, match="not been set up"):
-        source.drive(env, task, "enable")
-    prepare(source, env, task, enable=False)
+        source.drive(env, task, "wake_up_new_task")
+    prepare(source, env, task, wake=False)
     with pytest.raises(AssertionError, match="already been set up"):
         source.drive(env, task, "setup")
-    source.drive(env, task, "enable")
-    with pytest.raises(AssertionError, match="not ready to enable"):
-        source.drive(env, task, "enable")
+    source.drive(env, task, "wake_up_new_task")
+    with pytest.raises(AssertionError, match="not ready to wake_up_new_task"):
+        source.drive(env, task, "wake_up_new_task")
     foreign = Task("foreign", EmptyFlow(), "start", LOCAL_CV, Scheduler())
     with pytest.raises(AssertionError, match="different scheduler"):
-        source.drive(env, scheduler, "wake_up_new_task", task=foreign)
+        source.drive(env, scheduler, "get_rq", task=foreign)
     assert list(scheduler.runq) == [task]
     source.drive(env, scheduler, "schedule")
     with pytest.raises(AssertionError, match="already ended"):
-        source.drive(env, task, "enable")
+        source.drive(env, task, "wake_up_new_task")
     with pytest.raises(AssertionError, match="already been set up"):
         source.drive(env, task, "setup")
     assert env.depth == 0 and env.signal_queues == []
@@ -304,8 +304,8 @@ def test_schedule_rejects_bootstrap_foreign_task_and_forged_environments(runtime
             for invalid_env in (TaskLocalEnv(), other.env, TaskLocalEnv(task=task)):
                 with pytest.raises(AssertionError, match="current task"):
                     self.drive(invalid_env, scheduler, "schedule")
-            with pytest.raises(AssertionError, match="not ready to enable"):
-                self.drive(sig.env, task, "enable")
+            with pytest.raises(AssertionError, match="not ready to wake_up_new_task"):
+                self.drive(sig.env, task, "wake_up_new_task")
             self.drive(sig.env, scheduler, "schedule")
 
     task = Task("current", Flow(), "start", LOCAL_CV, scheduler)
@@ -423,7 +423,7 @@ def test_scheduler_requires_existing_task_zero_and_cannot_be_initialized_twice(r
     with pytest.raises(AssertionError, match="no initialized scheduler"):
         source.drive(idle.env, unattached, "setup")
     with pytest.raises(AssertionError, match="idle task cannot be queued"):
-        source.drive(idle.env, idle, "enable")
+        source.drive(idle.env, idle, "wake_up_new_task")
     with pytest.raises(AssertionError, match="idle task cannot block"):
         source.drive(idle.env, initialized, "schedule", block=True)
     assert idle.state is TaskState.RUNNING

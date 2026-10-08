@@ -6,9 +6,15 @@ from enum import Enum, auto
 from greenlet import getcurrent, greenlet
 
 from flows.task_flow import TaskFlow
-from framework.contention import EXCLUSIVE_CV, TASKPRIVATE_CV, ContentionVector
+from framework.contention import (
+    EXCLUSIVE_CV,
+    TASKPRIVATE_CV,
+    TRANSPARENT_CV,
+    ContentionVector,
+)
 from framework.engine import Signal, System, TaskLocalEnv, visibility
 from framework.scheduler import Scheduler
+from framework.sync_primitives import GuardBusyWaitIrqSavePreemption
 
 
 class TaskState(Enum):
@@ -60,9 +66,15 @@ class Task(System):
         self.greenlet = greenlet(self._run, parent=scheduler.idle.greenlet)
         self.state = TaskState.PREPARED
 
-    @visibility(TASKPRIVATE_CV)
-    def enable(self, sig: Signal):
-        self.drive(sig.env, self._scheduler(), "wake_up_new_task", task=self)
+    @visibility(TRANSPARENT_CV)
+    def wake_up_new_task(self, sig: Signal):
+        with GuardBusyWaitIrqSavePreemption(sig.env.cv):
+            self.drive(
+                sig.env,
+                self._scheduler(),
+                "get_rq",
+                task=self,
+            )
 
     def _run(self, _previous_result: object = None):
         # Run the task flow, then return control to the scheduler on exit.
