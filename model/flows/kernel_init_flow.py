@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from flows.task_flow import TaskFlow
 from framework.engine import Signal
+from framework.sync_primitives import RemoteCpus
 
 
 @dataclass
@@ -12,7 +13,7 @@ class KernelInitFlow(TaskFlow):
         sig.chain(self, "bringup_nonboot_cpus")
 
     def bringup_nonboot_cpus(self, sig: Signal):
-        # RemoteCpus().enable(sig.env.cv)
+        RemoteCpus().enable(sig.env.cv)
         sig.chain(self, "final_init")
 
     def final_init(self, sig: Signal):

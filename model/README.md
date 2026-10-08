@@ -171,4 +171,4 @@ The default run stops before task 0 enters idle and before task 2 executes;
 `make run` returns status 0 at the termination boundary.
 The boot task enables remote CPU contention before its first schedule.
 The boot and initialization vectors at this boundary are `(1, 0, 1, 1)` and
-`(1, 1, 0, 0)`. An empty ordinary run queue alone never terminates the model.
+`(1, 1, 1, 1)`. An empty ordinary run queue alone never terminates the model.

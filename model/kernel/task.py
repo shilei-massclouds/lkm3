@@ -8,6 +8,7 @@ from greenlet import getcurrent, greenlet
 from flows.task_flow import TaskFlow
 from framework.contention import (
     EXCLUSIVE_CV,
+    FREE_CV,
     TASKPRIVATE_CV,
     TRANSPARENT_CV,
     ContentionVector,
@@ -133,6 +134,6 @@ class KThreaddTask(Task):
             pid=2,
             flow=KthreaddFlow(),
             action="wait_for_work",
-            cv=ContentionVector(remote_irq=0, remote_tasks=0),
+            cv=FREE_CV,
             scheduler=gv.scheduler,
         )
