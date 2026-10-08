@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from greenlet import getcurrent
 
-from framework.contention import TRANSPARENT_CV
+from framework.contention import CPUSCOPE_CV, TRANSPARENT_CV
 from framework.engine import Signal, System, TaskLocalEnv, visibility
 from framework.sync_primitives import (
     GuardBusyWaitPreemption,
@@ -169,6 +169,7 @@ class Scheduler(System):
                 expected_state=TaskState.BLOCKED,
             )
 
+    @visibility(CPUSCOPE_CV)
     def switch(self, sig: Signal):
         """Perform one protected scheduling transition."""
         from kernel.task import TaskState

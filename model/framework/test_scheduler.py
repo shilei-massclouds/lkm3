@@ -364,18 +364,47 @@ def test_schedule_rejects_bootstrap_foreign_task_and_forged_environments(runtime
 
 
 @pytest.mark.parametrize("domain", ["remote_irq", "remote_tasks"])
-@pytest.mark.parametrize("action", ["enqueue", "schedule"])
-def test_management_actions_reject_remote_contention(domain, action):
+def test_runqueue_enqueue_rejects_remote_contention(domain):
     scheduler = Scheduler()
     task = Task("task", EmptyFlow(), "start", LOCAL_CV, scheduler)
     cv = ContentionVector(zero=True)
-    setattr(cv, domain, 1)
+    cv.expose(domain)
     env = TaskLocalEnv(cv)
-    target = scheduler.runq if action == "enqueue" else scheduler
-    kwargs = {"task": task} if action == "enqueue" else {}
     with pytest.raises(AssertionError, match=f"violated domains: {domain}"):
-        System().drive(env, target, action, **kwargs)
+        System().drive(env, scheduler.runq, "enqueue", task=task)
     assert env.depth == 0 and env.signal_queues == []
+
+
+@pytest.mark.parametrize("domain", ["remote_irq", "remote_tasks"])
+def test_schedule_checks_remote_contention_at_the_runqueue_boundary(runtime, domain):
+    idle, scheduler = runtime
+    env = idle.env
+    env.cv.expose(domain)
+    initial_stacks = {name: list(stack) for name, stack in env.cv.stacks.items()}
+
+    assert scheduler.check_invariant(env, "switch")
+    with pytest.raises(AssertionError, match=f"violated domains: {domain}") as exc_info:
+        System().drive(env, scheduler, "schedule")
+
+    assert "for RunQueue().select:" in str(exc_info.value)
+    assert scheduler.runq.selected is None and not scheduler.runq
+    assert env.cv.local_irq == env.cv.local_tasks == 0
+    assert getattr(env.cv, domain) == 1
+    assert env.cv.stacks == initial_stacks
+    assert env.depth == 0 and env.signal_queues == []
+
+
+@pytest.mark.parametrize("domain", ["local_irq", "local_tasks"])
+def test_switch_still_requires_local_protection(runtime, domain):
+    idle, scheduler = runtime
+    idle.env.cv.expose(domain)
+
+    with pytest.raises(AssertionError, match=f"violated domains: {domain}"):
+        System().drive(idle.env, scheduler, "switch")
+
+    assert idle.state is TaskState.RUNNING
+    assert scheduler.current is idle and not scheduler.runq
+    assert idle.env.depth == 0 and idle.env.signal_queues == []
 
 
 def test_setup_rejects_an_unrelated_greenlet_context(runtime):
