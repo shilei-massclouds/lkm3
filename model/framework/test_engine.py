@@ -10,7 +10,13 @@ import pytest
 from framework.contention import FULLSCOPE_CV, TRANSPARENT_CV, ContentionVector
 from framework.engine import Signal, System, TaskLocalEnv, requires_cv
 from framework.engine import visibility as declare_visibility
-from framework.sync_primitives import GuardYieldLock, GuardYieldTryLock
+from framework.sync_primitives import (
+    GuardBusyWaitIrqSave,
+    GuardBusyWaitIrqSavePreemption,
+    GuardBusyWaitPreemption,
+    GuardYieldLock,
+    GuardYieldTryLock,
+)
 from systems.computer import Computer
 
 DOMAINS = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
@@ -310,6 +316,38 @@ def test_yield_try_lock_allows_exclusive_dispatch_when_irq_contention_remains():
     assert target.received == [payload]
     assert target.environments[0] is cv
     assert cv.local_irq == cv.local_tasks == cv.remote_irq == cv.remote_tasks == 1
+
+
+@pytest.mark.parametrize(
+    "guard_type, unprotected_domain",
+    [
+        (GuardBusyWaitPreemption, "local_irq"),
+        (GuardBusyWaitIrqSave, "local_tasks"),
+        (GuardBusyWaitIrqSavePreemption, None),
+    ],
+)
+def test_combined_busy_wait_guards_enforce_exclusive_dispatch_boundaries(
+    guard_type, unprotected_domain
+):
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+    source = Computer()
+    target = Receiver("Target")
+    payload = object()
+
+    with guard_type(cv):
+        if unprotected_domain is None:
+            source.drive(env, target, "receive", payload=payload)
+            assert target.received == [payload]
+        else:
+            with pytest.raises(
+                AssertionError, match=f"violated domains: {unprotected_domain}"
+            ):
+                source.drive(env, target, "receive", payload=payload)
+            assert not target.received
+
+    assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
+    assert env.depth == 0 and env.signal_queues == []
 
 
 @pytest.mark.parametrize("declaration", ["class", "method"])

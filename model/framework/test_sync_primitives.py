@@ -4,11 +4,19 @@ import pytest
 
 from framework.contention import ContentionVector
 from framework.sync_primitives import (
+    BusyWaitIrqSave,
+    BusyWaitIrqSavePreemption,
+    BusyWaitLock,
+    GuardBusyWaitIrqSave,
+    GuardBusyWaitIrqSavePreemption,
     GuardBusyWaitLock,
+    GuardBusyWaitPreemption,
     GuardLocalIrq,
     GuardPreemption,
     GuardYieldLock,
     GuardYieldTryLock,
+    LocalIrq,
+    Preemption,
 )
 
 DOMAINS = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")
@@ -129,6 +137,138 @@ def test_busy_wait_guard_restores_state_and_propagates_action_assertion():
         assert False, "action failed"
 
     assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
+
+
+@pytest.mark.parametrize("lock_type", [BusyWaitIrqSave, BusyWaitIrqSavePreemption])
+@pytest.mark.parametrize("initial_irq", [-1, 0, 1])
+def test_busy_wait_irq_flags_are_independent_for_nested_acquisitions(
+    lock_type, initial_irq
+):
+    cv = ContentionVector(local_irq=initial_irq)
+    lock = lock_type()
+
+    outer_flags = lock.lock(cv)
+    assert outer_flags == initial_irq
+    inner_flags = lock.lock(cv)
+    assert inner_flags == initial_irq - 1
+
+    lock.unlock(cv, inner_flags)
+    assert cv.local_irq == initial_irq - 1
+    lock.unlock(cv, outer_flags)
+    assert (cv.local_irq, cv.local_tasks, cv.remote_irq, cv.remote_tasks) == (
+        initial_irq,
+        1,
+        1,
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    "guard_type, held",
+    [
+        (GuardBusyWaitPreemption, (0, -1, -1, -1)),
+        (GuardBusyWaitIrqSave, (-1, 0, -1, -1)),
+        (GuardBusyWaitIrqSavePreemption, (-1, -1, -1, -1)),
+    ],
+)
+def test_combined_busy_wait_guards_nest_and_restore_existing_protection(
+    guard_type, held
+):
+    cv = ContentionVector.zeros()
+
+    with guard_type(cv):
+        assert tuple(getattr(cv, domain) for domain in DOMAINS) == held
+        with pytest.raises(RuntimeError, match="inner action failed"), guard_type(cv):
+            assert tuple(getattr(cv, domain) for domain in DOMAINS) == tuple(
+                value * 2 for value in held
+            )
+            raise RuntimeError("inner action failed")
+        assert tuple(getattr(cv, domain) for domain in DOMAINS) == held
+
+    assert all(getattr(cv, domain) == 0 for domain in DOMAINS)
+
+
+@pytest.mark.parametrize(
+    "guard_type, restored_irq",
+    [
+        (GuardBusyWaitPreemption, -1),
+        (GuardBusyWaitIrqSave, 1),
+        (GuardBusyWaitIrqSavePreemption, 1),
+    ],
+)
+def test_combined_busy_wait_guards_restore_on_exception_and_keep_body_changes(
+    guard_type, restored_irq
+):
+    cv = ContentionVector.ones()
+
+    with pytest.raises(RuntimeError, match="action failed"), guard_type(cv):
+        cv.local_irq -= 2
+        cv.local_tasks += 2
+        cv.remote_irq += 3
+        cv.remote_tasks -= 2
+        raise RuntimeError("action failed")
+
+    assert (cv.local_irq, cv.local_tasks, cv.remote_irq, cv.remote_tasks) == (
+        restored_irq,
+        3,
+        4,
+        -1,
+    )
+
+
+@pytest.mark.parametrize(
+    "guard_type, expected",
+    [
+        (
+            GuardBusyWaitPreemption,
+            ["preemption.disable", "lock", "body", "unlock", "preemption.enable"],
+        ),
+        (
+            GuardBusyWaitIrqSave,
+            ["irq.save", "lock", "body", "unlock", "irq.restore"],
+        ),
+        (
+            GuardBusyWaitIrqSavePreemption,
+            [
+                "irq.save",
+                "preemption.disable",
+                "lock",
+                "body",
+                "unlock",
+                "irq.restore",
+                "preemption.enable",
+            ],
+        ),
+    ],
+)
+def test_combined_busy_wait_guards_protect_acquisition_and_release_in_order(
+    monkeypatch, guard_type, expected
+):
+    events: list[str] = []
+
+    def save_irq(self, cv):
+        events.append("irq.save")
+        return cv.local_irq
+
+    monkeypatch.setattr(LocalIrq, "save", save_irq)
+    monkeypatch.setattr(
+        LocalIrq, "restore", lambda self, cv, flags: events.append("irq.restore")
+    )
+    monkeypatch.setattr(
+        Preemption, "disable", lambda self, cv: events.append("preemption.disable")
+    )
+    monkeypatch.setattr(
+        Preemption, "enable", lambda self, cv: events.append("preemption.enable")
+    )
+    monkeypatch.setattr(BusyWaitLock, "lock", lambda self, cv: events.append("lock"))
+    monkeypatch.setattr(
+        BusyWaitLock, "unlock", lambda self, cv: events.append("unlock")
+    )
+
+    with guard_type(ContentionVector.ones()):
+        events.append("body")
+
+    assert events == expected
 
 
 @pytest.mark.parametrize("local_tasks, remote_tasks", [(1, 1), (0, 0), (2, 4)])

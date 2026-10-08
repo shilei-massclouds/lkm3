@@ -93,6 +93,136 @@ class GuardBusyWaitLock(BusyWaitLock):
         self.unlock(self.cv)
 
 
+class BusyWaitPreemption(SyncPrimitive):
+    """Combine a busy-wait lock with local preemption protection.
+
+    Preemption is disabled before acquisition and enabled after release.
+    Local IRQ contention remains unchanged.
+    """
+
+    def __init__(self):
+        self._preemption = Preemption()
+        self._lock = BusyWaitLock()
+
+    def lock(self, cv: ContentionVector) -> None:
+        self._preemption.disable(cv)
+        self._lock.lock(cv)
+
+    def unlock(self, cv: ContentionVector) -> None:
+        self._lock.unlock(cv)
+        self._preemption.enable(cv)
+
+
+class GuardBusyWaitPreemption(BusyWaitPreemption):
+    """Acquire a BusyWaitPreemption lock for a block and release it on exit."""
+
+    def __init__(self, cv: ContentionVector):
+        super().__init__()
+        self.cv = cv
+
+    def __enter__(self) -> Self:
+        self.lock(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.unlock(self.cv)
+
+
+class BusyWaitIrqSave(SyncPrimitive):
+    """Combine a busy-wait lock with saved local IRQ protection.
+
+    IRQ state is saved before acquisition and restored after release. Each
+    acquisition returns its flags to the caller. Local task contention remains
+    unchanged.
+    """
+
+    def __init__(self):
+        self._irq = LocalIrq()
+        self._lock = BusyWaitLock()
+
+    def lock(self, cv: ContentionVector) -> int:
+        flags = self._irq.save(cv)
+        self._lock.lock(cv)
+        return flags
+
+    def unlock(self, cv: ContentionVector, flags: int) -> None:
+        self._lock.unlock(cv)
+        self._irq.restore(cv, flags)
+
+
+class GuardBusyWaitIrqSave(BusyWaitIrqSave):
+    """Acquire a BusyWaitIrqSave lock for a block and restore its IRQ flags."""
+
+    def __init__(self, cv: ContentionVector):
+        super().__init__()
+        self.cv = cv
+        self._flags: int
+
+    def __enter__(self) -> Self:
+        self._flags = self.lock(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.unlock(self.cv, self._flags)
+
+
+class BusyWaitIrqSavePreemption(SyncPrimitive):
+    """Combine a busy-wait lock, saved IRQ state and preemption protection.
+
+    Follow __raw_spin_lock_irqsave and __raw_spin_unlock_irqrestore: save IRQ
+    state, disable preemption and acquire the lock; then release the lock,
+    restore IRQ state and enable preemption. Each acquisition returns its flags
+    to the caller.
+    """
+
+    def __init__(self):
+        self._irq = LocalIrq()
+        self._preemption = Preemption()
+        self._lock = BusyWaitLock()
+
+    def lock(self, cv: ContentionVector) -> int:
+        flags = self._irq.save(cv)
+        self._preemption.disable(cv)
+        self._lock.lock(cv)
+        return flags
+
+    def unlock(self, cv: ContentionVector, flags: int) -> None:
+        self._lock.unlock(cv)
+        self._irq.restore(cv, flags)
+        self._preemption.enable(cv)
+
+
+class GuardBusyWaitIrqSavePreemption(BusyWaitIrqSavePreemption):
+    """Acquire the combined lock for a block and restore its protection on exit."""
+
+    def __init__(self, cv: ContentionVector):
+        super().__init__()
+        self.cv = cv
+        self._flags: int
+
+    def __enter__(self) -> Self:
+        self._flags = self.lock(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.unlock(self.cv, self._flags)
+
+
 class LocalMultiTasks(SyncPrimitive):
     """Model the one-way transition from a single task to local multitasking."""
 
