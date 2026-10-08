@@ -121,6 +121,41 @@ class GuardPreemption(Preemption):
         self.enable(self.cv)
 
 
+class BusyWaitLock(SyncPrimitive):
+    """Reduce remote contention while a busy-wait lock is held.
+
+    Local IRQ and task contention remain unchanged because a local interrupt or
+    task that preempts the owner must not busy-wait on its lock.
+    """
+
+    def lock(self, cv: ContentionVector):
+        cv.remote_irq -= 1
+        cv.remote_tasks -= 1
+
+    def unlock(self, cv: ContentionVector):
+        cv.remote_irq += 1
+        cv.remote_tasks += 1
+
+
+class GuardBusyWaitLock(BusyWaitLock):
+    """Reduce remote contention for a guarded busy-wait lock and restore it."""
+
+    def __init__(self, cv: ContentionVector):
+        self.cv = cv
+
+    def __enter__(self) -> Self:
+        self.lock(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.unlock(self.cv)
+
+
 class LocalMultiTasks(SyncPrimitive):
     """Model the one-way transition from a single task to local multitasking."""
 
@@ -154,15 +189,53 @@ class GuardLocalIrq(LocalIrq):
         self.restore(self.cv, self._flags)
 
 
-class GuardYieldLock(SyncPrimitive):
-    """Reduce task contention by one for a block and undo it on exit."""
+class YieldLock(SyncPrimitive):
+    """Model a lock whose task contenders yield while waiting.
+
+    Holding the lock reduces local and remote task contention. IRQ contention
+    remains unchanged because the yielding operation is for task context.
+    """
+
+    def lock(self, cv: ContentionVector):
+        cv.local_tasks -= 1
+        cv.remote_tasks -= 1
+
+    def unlock(self, cv: ContentionVector):
+        cv.local_tasks += 1
+        cv.remote_tasks += 1
+
+
+class YieldTryLock(YieldLock):
+    """Model yielding acquisition for tasks and nonblocking acquisition for IRQs.
+
+    Task contenders yield while waiting. IRQ contenders try once and give up
+    acquiring the lock on failure, without yielding or spinning. An IRQ therefore
+    cannot deadlock by waiting on a lock held by the context it interrupted.
+
+    The model follows the current task, so only lock/unlock are modeled; the
+    IRQ-side try operation is outside its view. Holding the lock reduces both
+    task and IRQ contention without disabling IRQs.
+    """
+
+    def lock(self, cv: ContentionVector):
+        super().lock(cv)
+        cv.local_irq -= 1
+        cv.remote_irq -= 1
+
+    def unlock(self, cv: ContentionVector):
+        cv.local_irq += 1
+        cv.remote_irq += 1
+        super().unlock(cv)
+
+
+class GuardYieldLock(YieldLock):
+    """Acquire a YieldLock for a guarded block and release it on exit."""
 
     def __init__(self, cv: ContentionVector):
         self.cv = cv
 
     def __enter__(self) -> Self:
-        self.cv.local_tasks -= 1
-        self.cv.remote_tasks -= 1
+        self.lock(self.cv)
         return self
 
     def __exit__(
@@ -171,17 +244,17 @@ class GuardYieldLock(SyncPrimitive):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.cv.local_tasks += 1
-        self.cv.remote_tasks += 1
+        self.unlock(self.cv)
 
 
-class GuardYieldTryLock(GuardYieldLock):
-    """Reduce task and IRQ contention by one for a block and undo it on exit."""
+class GuardYieldTryLock(YieldTryLock):
+    """Acquire a YieldTryLock for a guarded block and release it on exit."""
+
+    def __init__(self, cv: ContentionVector):
+        self.cv = cv
 
     def __enter__(self) -> Self:
-        super().__enter__()
-        self.cv.local_irq -= 1
-        self.cv.remote_irq -= 1
+        self.lock(self.cv)
         return self
 
     def __exit__(
@@ -190,9 +263,7 @@ class GuardYieldTryLock(GuardYieldLock):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.cv.local_irq += 1
-        self.cv.remote_irq += 1
-        super().__exit__(exc_type, exc_value, traceback)
+        self.unlock(self.cv)
 
 
 # Environment and requires_cv defaults.

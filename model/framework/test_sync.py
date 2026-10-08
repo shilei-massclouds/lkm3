@@ -12,6 +12,7 @@ from framework.sync import (
     TASKSCOPE_CV,
     TRANSPARENT_CV,
     ContentionVector,
+    GuardBusyWaitLock,
     GuardLocalIrq,
     GuardPreemption,
     GuardYieldLock,
@@ -169,6 +170,41 @@ def test_redundant_irq_guards_allow_negative_levels_and_restore_exclusive_state(
         assert cv.local_irq == -1
 
     assert cv.local_irq == 0
+
+
+@pytest.mark.parametrize("initial", [0, 1, 2])
+def test_busy_wait_guard_preserves_local_contention_and_restores_remote_domains(
+    initial,
+):
+    cv = ContentionVector(
+        local_irq=initial,
+        local_tasks=initial,
+        remote_irq=initial,
+        remote_tasks=initial,
+    )
+
+    with GuardBusyWaitLock(cv):
+        assert cv.local_irq == initial
+        assert cv.local_tasks == initial
+        assert cv.remote_irq == initial - 1
+        assert cv.remote_tasks == initial - 1
+
+    assert all(getattr(cv, domain) == initial for domain in DOMAINS)
+
+
+def test_busy_wait_guard_restores_state_and_propagates_action_assertion():
+    cv = ContentionVector.ones()
+
+    with pytest.raises(AssertionError, match="action failed"), GuardBusyWaitLock(cv):
+        assert (cv.local_irq, cv.local_tasks, cv.remote_irq, cv.remote_tasks) == (
+            1,
+            1,
+            0,
+            0,
+        )
+        assert False, "action failed"
+
+    assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
 
 
 @pytest.mark.parametrize("local_tasks, remote_tasks", [(1, 1), (0, 0), (2, 4)])
