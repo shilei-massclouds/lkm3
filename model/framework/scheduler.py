@@ -12,9 +12,11 @@ from greenlet import getcurrent
 from framework.contention import CPUSCOPE_CV, TRANSPARENT_CV
 from framework.engine import Signal, System, TaskLocalEnv, visibility
 from framework.sync_primitives import (
+    BusyWaitPreemption,
     GuardBusyWaitPreemption,
     GuardLocalIrq,
     GuardPreemption,
+    LocalIrq,
 )
 
 if TYPE_CHECKING:
@@ -160,7 +162,7 @@ class Scheduler(System):
     def wake(self, sig: Signal):
         from kernel.task import TaskState
 
-        with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
+        with GuardLocalIrq(sig.env.cv), GuardBusyWaitPreemption(sig.env.cv, self.runq):
             self.drive(
                 sig.env,
                 self.runq,
@@ -179,6 +181,9 @@ class Scheduler(System):
         blocked = sig.args.get("block", False)
         assert not (exiting and blocked), "exiting task cannot block"
         assert task is not self.idle or not blocked, "idle task cannot block"
+        assert task._rq_lock is None, "task already has a pending switch"
+        task._rq_lock = BusyWaitPreemption(self.runq)
+        task._rq_lock.lock(sig.env.cv)
 
         if exiting:
             assert task is not self.idle, "idle task cannot exit through the scheduler"
@@ -209,22 +214,78 @@ class Scheduler(System):
             return
 
         if next_task is not task:
-            next_task.greenlet.switch()
+            previous = next_task.greenlet.switch(task)
+        else:
+            previous = task
+
         # This call returns only when another task has selected its caller again.
-        self._require_current(sig.env)
+        self.drive(sig.env, self, "finish_switch", previous=previous)
+
+    def _release_switch(self, task: Task) -> None:
+        """Balance a task's recorded rq lock and local IRQ protection."""
+        assert task._rq_lock is not None, "task has no pending switch"
+        task._rq_lock.unlock(task.env.cv)
+        LocalIrq().enable(task.env.cv)
+        task._rq_lock = None
+
+    @visibility(CPUSCOPE_CV)
+    def finish_switch(self, sig: Signal):
+        """Complete a switch on the incoming task's stack."""
+        from kernel.task import Task, TaskState
+
+        task = self._require_current(sig.env)
+        previous = sig.args["previous"]
+        assert isinstance(previous, Task), "switch must identify the previous task"
+        assert previous.scheduler is self, "previous task belongs to another scheduler"
+        if previous is not task:
+            assert previous.state in (
+                TaskState.READY,
+                TaskState.BLOCKED,
+                TaskState.FINISHED,
+            ), "previous task is still running"
+            if previous.state is TaskState.FINISHED:
+                # An exiting task never resumes to balance its saved CV record.
+                self._release_switch(previous)
+        self._release_switch(task)
+
+    @visibility(TRANSPARENT_CV)
+    def schedule_tail(self, sig: Signal):
+        """Establish a new task's inherited protection before its first tail."""
+        task = self._require_current(sig.env)
+        assert task._rq_lock is None, "new task already has a pending switch"
+        with GuardPreemption(sig.env.cv):
+            LocalIrq().disable(sig.env.cv)
+            # lock() records the inherited rq protection in this task's own CV;
+            # the engine does not acquire a second runtime lock.
+            task._rq_lock = BusyWaitPreemption(self.runq)
+            task._rq_lock.lock(sig.env.cv)
+            self.drive(sig.env, self, "finish_switch", previous=sig.args["previous"])
+
+    def _drive_switch(self, sig: Signal, *, exiting: bool = False) -> None:
+        task = self._require_current(sig.env)
+        with GuardPreemption(sig.env.cv):
+            LocalIrq().disable(sig.env.cv)
+            try:
+                self.drive(
+                    sig.env,
+                    self,
+                    "switch",
+                    block=sig.args.get("block", False),
+                    exiting=exiting,
+                )
+            except BaseException:
+                # Balance only this frame's protection while derivation aborts.
+                if task._rq_lock is not None:
+                    self._release_switch(task)
+                else:
+                    LocalIrq().enable(sig.env.cv)
+                raise
 
     @visibility(TRANSPARENT_CV)
     def schedule(self, sig: Signal):
-        with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
-            self.drive(
-                sig.env,
-                self,
-                "switch",
-                block=sig.args.get("block", False),
-            )
+        self._drive_switch(sig)
 
     @visibility(TRANSPARENT_CV)
     def exit(self, sig: Signal):
         """Select the task that receives control when this task returns."""
-        with GuardLocalIrq(sig.env.cv), GuardPreemption(sig.env.cv):
-            self.drive(sig.env, self, "switch", exiting=True)
+        self._drive_switch(sig, exiting=True)

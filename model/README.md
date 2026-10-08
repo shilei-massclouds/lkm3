@@ -15,6 +15,15 @@ returns directly to that greenlet. Task 0 is the separate idle fallback,
 selected when no ordinary task is ready. The scheduler has no greenlet or
 dispatch loop of its own.
 
+Scheduling disables local IRQs before entering the CPU-scoped `switch` action,
+which records a `BusyWaitPreemption` lock protecting the run queue. The incoming
+task runs `finish_switch` to release its recorded lock and enable IRQs; a new
+task first establishes the corresponding protection through `schedule_tail`.
+Suspended tasks retain their own CV records until they resume. An exiting task
+returns itself to the incoming greenlet so that `finish_switch` can also balance
+its final protection record. These records describe each task's derivation
+state and do not represent concurrent runtime lock owners.
+
 Use Python 3.14 and `greenlet>=3.3,<4`. Install the Python dependency with:
 
 ```sh
@@ -160,5 +169,6 @@ derivation.
 
 The default run stops before task 0 enters idle and before task 2 executes;
 `make run` returns status 0 at the termination boundary.
-The boot and initialization vectors at this boundary are `(1, 0, 0, 0)` and
+The boot task enables remote CPU contention before its first schedule.
+The boot and initialization vectors at this boundary are `(1, 0, 1, 1)` and
 `(1, 1, 0, 0)`. An empty ordinary run queue alone never terminates the model.

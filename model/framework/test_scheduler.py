@@ -6,10 +6,15 @@ import pytest
 from greenlet import getcurrent, gettrace, greenlet, settrace
 
 from flows.task_flow import TaskFlow
-from framework.contention import ContentionVector
-from framework.engine import Signal, System, TaskLocalEnv
+from framework.contention import CPUSCOPE_CV, ContentionVector
+from framework.engine import Signal, System, TaskLocalEnv, visibility
 from framework.scheduler import RunQueue, Scheduler
-from framework.sync_primitives import GuardBusyWaitIrqSavePreemption, GuardLocalIrq
+from framework.sync_primitives import (
+    BusyWaitPreemption,
+    GuardBusyWaitIrqSavePreemption,
+    GuardLocalIrq,
+    LocalIrq,
+)
 from kernel.task import BootInitTask, Task, TaskState
 
 LOCAL_CV = ContentionVector(zero=True, local_irq=1, local_tasks=1)
@@ -376,22 +381,115 @@ def test_runqueue_enqueue_rejects_remote_contention(domain):
 
 
 @pytest.mark.parametrize("domain", ["remote_irq", "remote_tasks"])
-def test_schedule_checks_remote_contention_at_the_runqueue_boundary(runtime, domain):
+def test_schedule_protects_runqueue_against_remote_contention(
+    runtime, domain, monkeypatch
+):
     idle, scheduler = runtime
     env = idle.env
     env.cv.expose(domain)
     initial_stacks = {name: list(stack) for name, stack in env.cv.stacks.items()}
+    select = RunQueue.select
+    selections: list[RunQueue] = []
+
+    def observe_select(self: RunQueue, sig: Signal):
+        assert getattr(sig.env.cv, domain) == 0
+        assert sig.env.cv.stacks[domain][-1] is self
+        selections.append(self)
+        select(self, sig)
+
+    monkeypatch.setattr(RunQueue, "select", observe_select)
 
     assert scheduler.check_invariant(env, "switch")
-    with pytest.raises(AssertionError, match=f"violated domains: {domain}") as exc_info:
-        System().drive(env, scheduler, "schedule")
+    System().drive(env, scheduler, "schedule")
 
-    assert "for RunQueue().select:" in str(exc_info.value)
-    assert scheduler.runq.selected is None and not scheduler.runq
+    assert selections == [scheduler.runq]
+    assert scheduler.runq.selected is idle and not scheduler.runq
     assert env.cv.local_irq == env.cv.local_tasks == 0
     assert getattr(env.cv, domain) == 1
     assert env.cv.stacks == initial_stacks
     assert env.depth == 0 and env.signal_queues == []
+
+
+def test_switch_tails_balance_first_entry_resume_and_exit(runtime, monkeypatch):
+    idle, scheduler = runtime
+    idle.env.cv = ContentionVector.ones()
+    source = System()
+    transitions: list[tuple[str, str]] = []
+    finish_switch = Scheduler.finish_switch
+    lock = BusyWaitPreemption.lock
+    unlock = BusyWaitPreemption.unlock
+    enable_irq = LocalIrq.enable
+
+    def observe_lock(self: BusyWaitPreemption, cv: ContentionVector):
+        assert cv.local_irq == 0
+        lock(self, cv)
+
+    def observe_unlock(self: BusyWaitPreemption, cv: ContentionVector):
+        assert cv.local_irq == 0
+        unlock(self, cv)
+
+    def observe_enable_irq(self: LocalIrq, cv: ContentionVector):
+        assert cv.local_irq == 0
+        assert cv.stacks["remote_irq"] == cv.stacks["remote_tasks"] == []
+        enable_irq(self, cv)
+
+    @visibility(CPUSCOPE_CV)
+    def observe_finish(self: Scheduler, sig: Signal):
+        task = sig.env.task
+        previous = sig.args["previous"]
+        assert task is not None and task.greenlet is getcurrent()
+        assert sig.env.cv.local_irq == 0
+        assert sig.env.cv.local_tasks == -1
+        assert sig.env.cv.remote_irq == sig.env.cv.remote_tasks == 0
+        assert sig.env.cv.stacks["remote_irq"] == [self.runq]
+        assert sig.env.cv.stacks["remote_tasks"] == [self.runq]
+        assert task._rq_lock is not None
+        assert previous._rq_lock is not None
+        transitions.append((previous.name, task.name))
+        finish_switch(self, sig)
+        assert task._rq_lock is None
+        assert sig.env.cv.local_irq == 1
+        assert sig.env.cv.local_tasks == 0
+        assert sig.env.cv.remote_irq == sig.env.cv.remote_tasks == 1
+        assert sig.env.cv.stacks["remote_irq"] == []
+        assert sig.env.cv.stacks["remote_tasks"] == []
+        if previous.state is TaskState.FINISHED:
+            assert previous.greenlet is not None and previous.greenlet.dead
+            assert previous._rq_lock is None
+            assert all(not stack for stack in previous.env.cv.stacks.values())
+
+    class Flow(TaskFlow):
+        def start(self, sig: Signal):
+            assert all(not stack for stack in sig.env.cv.stacks.values())
+            self.drive(sig.env, scheduler, "schedule")
+            assert all(not stack for stack in sig.env.cv.stacks.values())
+
+    monkeypatch.setattr(Scheduler, "finish_switch", observe_finish)
+    monkeypatch.setattr(BusyWaitPreemption, "lock", observe_lock)
+    monkeypatch.setattr(BusyWaitPreemption, "unlock", observe_unlock)
+    monkeypatch.setattr(LocalIrq, "enable", observe_enable_irq)
+    tasks = [
+        Task("a", Flow(), "start", ContentionVector.ones(), scheduler),
+        Task("b", EmptyFlow(), "start", ContentionVector.ones(), scheduler),
+        Task("c", EmptyFlow(), "start", ContentionVector.ones(), scheduler),
+    ]
+    for task in tasks:
+        prepare(source, idle.env, task)
+    source.drive(idle.env, scheduler, "schedule")
+
+    assert transitions == [
+        ("boot_init", "a"),
+        ("a", "b"),
+        ("b", "c"),
+        ("c", "a"),
+        ("a", "boot_init"),
+    ]
+    for task in (idle, *tasks):
+        assert task._rq_lock is None
+        assert all(not stack for stack in task.env.cv.stacks.values())
+        assert task.env.cv.local_irq == task.env.cv.local_tasks == 1
+        assert task.env.cv.remote_irq == task.env.cv.remote_tasks == 1
+    assert scheduler.current is idle and not scheduler.runq
 
 
 @pytest.mark.parametrize("domain", ["local_irq", "local_tasks"])
@@ -507,7 +605,10 @@ def test_scheduler_requires_existing_task_zero_and_cannot_be_initialized_twice(r
     assert initialized.current is idle and not initialized.runq
 
 
-def test_blocked_task_leaves_run_queue_and_resumes_when_woken(runtime):
+@pytest.mark.parametrize("remote_contention", [False, True])
+def test_blocked_task_leaves_run_queue_and_resumes_when_woken(
+    runtime, remote_contention
+):
     idle, scheduler = runtime
     source = System()
     events: list[str] = []
@@ -526,7 +627,10 @@ def test_blocked_task_leaves_run_queue_and_resumes_when_woken(runtime):
         def pending(self, sig: Signal):
             events.append("pending")
 
-    task = Task("worker", Flow(), "start", LOCAL_CV, scheduler)
+    if remote_contention:
+        idle.env.cv.expose("remote_irq", "remote_tasks")
+    cv = ContentionVector.ones() if remote_contention else LOCAL_CV
+    task = Task("worker", Flow(), "start", cv, scheduler)
     prepare(source, idle.env, task)
     source.drive(idle.env, scheduler, "schedule")
     assert events == ["blocked"]
@@ -545,6 +649,8 @@ def test_blocked_task_leaves_run_queue_and_resumes_when_woken(runtime):
     assert task.state is TaskState.FINISHED and task.greenlet.dead
     assert task.env.depth == 0 and task.env.signal_queues == []
     assert task.env.cv.local_irq == 1
+    assert task.env.cv.remote_irq == task.env.cv.remote_tasks == int(remote_contention)
+    assert task._rq_lock is None
     assert scheduler.current is idle and not scheduler.runq
 
 

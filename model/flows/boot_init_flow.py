@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from flows.task_flow import TaskFlow
 from framework.engine import Signal
 from framework.scheduler import Scheduler
-from framework.sync_primitives import LocalIrq, LocalMultiTasks, Preemption
+from framework.sync_primitives import LocalIrq, LocalMultiTasks, Preemption, RemoteCpus
 from kernel.task import KernelInitTask, KThreaddTask
 
 
@@ -59,7 +59,7 @@ class BootInitFlow(TaskFlow):
 
         assert gv.scheduler is not None
         LocalMultiTasks().enable(sig.env.cv)
-        # RemoteCpus().enable(sig.env.cv)
+        RemoteCpus().enable(sig.env.cv)
         # Like schedule_preempt_disabled(), task 0 retains disabled preemption.
         Preemption().disable(sig.env.cv)
         self.drive(sig.env, gv.scheduler, "schedule")

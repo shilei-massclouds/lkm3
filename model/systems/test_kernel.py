@@ -100,8 +100,8 @@ def test_kernel_boot_starts_before_scheduler_and_terminates_at_boot_userapp(
     assert (cv.local_irq, cv.local_tasks, cv.remote_irq, cv.remote_tasks) == (
         1,
         0,
-        0,
-        0,
+        1,
+        1,
     )
     cv = init.env.cv
     assert (cv.local_irq, cv.local_tasks, cv.remote_irq, cv.remote_tasks) == (

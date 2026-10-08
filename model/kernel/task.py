@@ -14,7 +14,7 @@ from framework.contention import (
 )
 from framework.engine import Signal, System, TaskLocalEnv, visibility
 from framework.scheduler import Scheduler
-from framework.sync_primitives import GuardBusyWaitIrqSavePreemption
+from framework.sync_primitives import BusyWaitPreemption, GuardBusyWaitIrqSavePreemption
 
 
 class TaskState(Enum):
@@ -45,6 +45,8 @@ class Task(System):
         self.action = action
         self.scheduler = scheduler
         self.env = TaskLocalEnv(copy(cv), task=self)
+        # Each task keeps its own pending switch protection across suspension.
+        self._rq_lock: BusyWaitPreemption | None = None
         self.greenlet: greenlet | None = None
         self.state = TaskState.NEW
 
@@ -76,10 +78,12 @@ class Task(System):
                 task=self,
             )
 
-    def _run(self, _previous_result: object = None):
+    def _run(self, previous: Task) -> Task:
+        self.drive(self.env, self._scheduler(), "schedule_tail", previous=previous)
         # Run the task flow, then return control to the scheduler on exit.
         self.drive(self.env, self.flow, self.action)
         self.drive(self.env, self._scheduler(), "exit")
+        return self
 
 
 class BootInitTask(Task):
