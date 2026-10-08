@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass, field
 
+from framework.contention import TRANSPARENT_CV
 from framework.engine import Signal, System, visibility
-from framework.sync import (
-    TRANSPARENT_CV,
+from framework.sync_primitives import (
     GuardLocalIrq,
     GuardPreemption,
     GuardYieldTryLock,

@@ -6,9 +6,10 @@ import pytest
 from greenlet import getcurrent, gettrace, greenlet, settrace
 
 from flows.task_flow import TaskFlow
+from framework.contention import ContentionVector
 from framework.engine import Signal, System, TaskLocalEnv
 from framework.scheduler import RunQueue, Scheduler
-from framework.sync import ContentionVector, GuardLocalIrq
+from framework.sync_primitives import GuardLocalIrq
 from kernel.task import BootInitTask, Task, TaskState
 
 LOCAL_CV = ContentionVector(zero=True, local_irq=1, local_tasks=1)

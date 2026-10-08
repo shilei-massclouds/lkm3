@@ -6,13 +6,9 @@ from enum import Enum, auto
 from greenlet import getcurrent, greenlet
 
 from flows.task_flow import TaskFlow
+from framework.contention import EXCLUSIVE_CV, TASKPRIVATE_CV, ContentionVector
 from framework.engine import Signal, System, TaskLocalEnv, visibility
 from framework.scheduler import Scheduler
-from framework.sync import (
-    EXCLUSIVE_CV,
-    TASKPRIVATE_CV,
-    ContentionVector,
-)
 
 
 class TaskState(Enum):

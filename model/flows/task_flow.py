@@ -2,8 +2,8 @@
 
 from typing import TYPE_CHECKING
 
+from framework.contention import TASKPRIVATE_CV
 from framework.engine import System, visibility
-from framework.sync import TASKPRIVATE_CV
 
 if TYPE_CHECKING:
     from kernel.task import Task

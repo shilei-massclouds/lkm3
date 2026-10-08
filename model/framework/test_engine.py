@@ -7,15 +7,10 @@ from warnings import catch_warnings
 
 import pytest
 
+from framework.contention import FULLSCOPE_CV, TRANSPARENT_CV, ContentionVector
 from framework.engine import Signal, System, TaskLocalEnv, requires_cv
 from framework.engine import visibility as declare_visibility
-from framework.sync import (
-    FULLSCOPE_CV,
-    TRANSPARENT_CV,
-    ContentionVector,
-    GuardYieldLock,
-    GuardYieldTryLock,
-)
+from framework.sync_primitives import GuardYieldLock, GuardYieldTryLock
 from systems.computer import Computer
 
 DOMAINS = ("local_irq", "local_tasks", "remote_irq", "remote_tasks")

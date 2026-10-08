@@ -8,7 +8,7 @@ from types import FunctionType
 from typing import TYPE_CHECKING, Any, cast
 from warnings import warn
 
-from framework.sync import EXCLUSIVE_CV, FULLSCOPE_CV, ContentionVector
+from framework.contention import EXCLUSIVE_CV, FULLSCOPE_CV, ContentionVector
 
 if TYPE_CHECKING:
     from kernel.task import Task

@@ -7,9 +7,9 @@ from flows import boot_init_flow
 from flows.boot_init_flow import BootInitFlow
 from flows.kernel_init_flow import KernelInitFlow
 from flows.kthreadd_flow import KthreaddFlow
+from framework.contention import TRANSPARENT_CV
 from framework.engine import Signal, TaskLocalEnv, visibility
 from framework.scheduler import Scheduler
-from framework.sync import TRANSPARENT_CV
 from global_vars import GlobalVars, gv
 from kernel.task import BootInitTask, KernelInitTask, TaskState
 from main import main

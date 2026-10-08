@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from flows.task_flow import TaskFlow
 from framework.engine import Signal
 from framework.scheduler import Scheduler
-from framework.sync import LocalIrq, LocalMultiTasks, Preemption
+from framework.sync_primitives import LocalIrq, LocalMultiTasks, Preemption
 from kernel.task import KernelInitTask, KThreaddTask
 
 

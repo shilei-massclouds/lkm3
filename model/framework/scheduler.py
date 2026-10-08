@@ -9,8 +9,9 @@ from typing import TYPE_CHECKING
 
 from greenlet import getcurrent
 
+from framework.contention import TRANSPARENT_CV
 from framework.engine import Signal, System, TaskLocalEnv, visibility
-from framework.sync import TRANSPARENT_CV, GuardLocalIrq, GuardPreemption
+from framework.sync_primitives import GuardLocalIrq, GuardPreemption
 
 if TYPE_CHECKING:
     from kernel.task import Task

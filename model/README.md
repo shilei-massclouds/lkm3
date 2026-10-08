@@ -69,6 +69,12 @@ inverting their requirement vectors into visibility.
 
 ## Contention-vector model
 
+`framework/contention.py` defines contention vectors and the environment,
+boundary and visibility presets. `framework/sync_primitives.py` defines
+synchronization operations and their scoped guards, importing the vector type
+from `contention.py`. Callers import vectors and operations from their respective
+modules.
+
 The four components of a `ContentionVector` are interpreted from the current
 task's point of view while it accesses a target system. The same vector shape
 has three distinct roles:
