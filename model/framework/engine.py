@@ -12,6 +12,7 @@ from framework.contention import (
     DOMAINS,
     EXCLUSIVE_CV,
     FULLSCOPE_CV,
+    TASKPRIVATE_CV,
     TRANSPARENT_CV,
     ContentionVector,
 )
@@ -245,11 +246,22 @@ def visibility[T: type[System] | Callable[..., Any]](
     )
     template = copy(declaration)
 
+    def task_private_enter(self):
+        return self
+
+    def task_private_exit(self, exc_type, exc_value, traceback):
+        pass
+
     def decorate(target: T) -> T:
         if isinstance(target, type):
             assert issubclass(target, System), (
                 "visibility can only decorate System subclasses"
             )
+            if declaration is TASKPRIVATE_CV:
+                if not hasattr(target, "__enter__"):
+                    type.__setattr__(target, "__enter__", task_private_enter)
+                if not hasattr(target, "__exit__"):
+                    type.__setattr__(target, "__exit__", task_private_exit)
         else:
             assert isinstance(target, FunctionType), (
                 "visibility expects a System subclass or instance method"

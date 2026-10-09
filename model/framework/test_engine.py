@@ -3,6 +3,7 @@
 from collections import deque
 from dataclasses import dataclass, field, fields
 from inspect import currentframe, signature
+from typing import Any
 from warnings import catch_warnings
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from framework.contention import (
     CPUSCOPE_CV,
     FULLSCOPE_CV,
+    TASKPRIVATE_CV,
     TRANSPARENT_CV,
     ContentionVector,
 )
@@ -364,6 +366,17 @@ def test_action_name_selects_transparent_default_visibility():
     )
     assert not target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "_closed")
     assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "open")
+
+
+def test_task_private_visibility_adds_context_manager_protocol():
+    @declare_visibility(TASKPRIVATE_CV)
+    class TaskPrivateSystem(System):
+        pass
+
+    target: Any = TaskPrivateSystem()
+
+    with target as scoped:
+        assert scoped is target
 
 
 def test_transparent_visibility_masks_a_convenience_wrapper():

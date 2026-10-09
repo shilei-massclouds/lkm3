@@ -2,7 +2,8 @@
 
 from dataclasses import dataclass, field
 
-from framework.engine import Signal, System
+from framework.contention import TASKPRIVATE_CV
+from framework.engine import Signal, System, visibility
 from framework.sync_primitives import (
     GuardLocalIrq,
     GuardPreemption,
@@ -10,6 +11,7 @@ from framework.sync_primitives import (
 )
 
 
+@visibility(TASKPRIVATE_CV)
 @dataclass
 class PrintkRecord(System):
     seq: int
@@ -76,7 +78,7 @@ class Io(System):
     def vprintk_store(self, sig: Signal):
         from global_vars import gv
 
-        with GuardLocalIrq(sig.env.cv):
-            record = self.drive(sig.env, gv.prb, "_reserve")
-            self.drive(sig.env, record, "_fill", msg=sig.args["msg"])
-            self.drive(sig.env, record, "_commit")
+        with GuardLocalIrq(sig.env.cv):  # noqa: SIM117
+            with self.drive(sig.env, gv.prb, "_reserve") as record:
+                self.drive(sig.env, record, "_fill", msg=sig.args["msg"])
+                self.drive(sig.env, record, "_commit")
