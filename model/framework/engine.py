@@ -44,11 +44,11 @@ class Signal:
     env: TaskLocalEnv
     queue: deque[Signal] = field(repr=False)
 
-    def handle(self):
+    def handle(self) -> Any:
         action = getattr(self.target, self.action)
         self.target.acquire(self.env, self.action)
         try:
-            action(self)
+            return action(self)
         finally:
             self.target.release(self.env, self.action)
 
@@ -82,7 +82,7 @@ class System:
                 return copy(declaration)
         return copy(FULLSCOPE_CV)
 
-    def drive(self, env: TaskLocalEnv, target: System, action: str, **kwargs):
+    def drive(self, env: TaskLocalEnv, target: System, action: str, **kwargs) -> Any:
         """Finish this invocation's signal queue before returning to its caller."""
         depth = env.depth
         indent = "    " * depth
@@ -93,17 +93,18 @@ class System:
         env.depth = depth + 1
         try:
             _emit(env, queue, target, action, **kwargs)
+            result = queue.popleft().handle()
             while queue:
                 queue.popleft().handle()
+            return result
         finally:
             env.signal_queues.pop()
             env.depth = depth
 
     def drive_all(
         self, env: TaskLocalEnv, targets: Iterable[System], action: str, **kwargs
-    ):
-        for target in targets:
-            self.drive(env, target, action, **kwargs)
+    ) -> list[Any]:
+        return [self.drive(env, target, action, **kwargs) for target in targets]
 
     def acquire(self, env: TaskLocalEnv, action: str):
         assert self.check_invariant(env, action), self.format_invariant(

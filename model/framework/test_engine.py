@@ -113,6 +113,85 @@ def test_drive_all_source_and_generator(capsys):
     assert env.depth == 0
 
 
+def test_drive_returns_root_result_without_chained_result():
+    env = TaskLocalEnv()
+    root_result = object()
+    chained_result = object()
+
+    class ReturningTarget(System):
+        def root(self, sig: Signal):
+            sig.chain(self, "chained")
+            return root_result
+
+        def chained(self, sig: Signal):
+            return chained_result
+
+    assert System().drive(env, ReturningTarget(), "root") is root_result
+
+
+def test_nested_drive_result_is_not_implicitly_returned():
+    env = TaskLocalEnv()
+    inner_result = object()
+
+    class Nested(System):
+        def outer(self, sig: Signal):
+            self.drive(sig.env, self, "inner")
+
+        def inner(self, sig: Signal):
+            return inner_result
+
+    assert System().drive(env, Nested(), "outer") is None
+
+
+def test_drive_all_returns_results_in_target_order():
+    env = TaskLocalEnv()
+    middle_result = object()
+
+    class ReturningTarget(System):
+        def __init__(self, result):
+            self.result = result
+
+        def emit(self, sig: Signal):
+            return self.result
+
+    targets = [
+        ReturningTarget(None),
+        ReturningTarget(middle_result),
+        ReturningTarget(None),
+    ]
+
+    assert System().drive_all(env, targets, "emit") == [None, middle_result, None]
+
+
+def test_drive_all_empty_targets_returns_empty_list():
+    assert System().drive_all(TaskLocalEnv(), [], "unused") == []
+
+
+def test_drive_all_exception_restores_environment_and_stops_iteration():
+    parent_queue: deque[Signal] = deque()
+    env = TaskLocalEnv(depth=3, signal_queues=[parent_queue])
+    calls: list[str] = []
+
+    class Target(System):
+        def __init__(self, name, fail=False):
+            self.name = name
+            self.fail = fail
+
+        def emit(self, sig: Signal):
+            calls.append(self.name)
+            if self.fail:
+                raise RuntimeError("emit failed")
+
+    targets = [Target("first"), Target("second", fail=True), Target("third")]
+
+    with pytest.raises(RuntimeError, match="emit failed"):
+        System().drive_all(env, targets, "emit")
+
+    assert calls == ["first", "second"]
+    assert env.depth == 3
+    assert env.signal_queues == [parent_queue]
+
+
 def test_signal_releases_environment_when_action_asserts():
     cv = ContentionVector.ones()
     env = TaskLocalEnv(cv)
