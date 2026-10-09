@@ -11,12 +11,12 @@ from kernel.params import Param
 class EarlyCon(System):
     console: Console = field(default_factory=Console)
 
-    def setup(self, sig: Signal):
+    def _setup(self, sig: Signal):
         from global_vars import gv
 
         drv_name = sig.args.get("drv")
-        self.drive(sig.env, self.console, "setup", drv=drv_name)
-        self.drive(sig.env, gv.console_list, "register", con=self.console)
+        self.drive(sig.env, self.console, "_setup", drv=drv_name)
+        self.drive(sig.env, gv.console_list, "_register", con=self.console)
 
 
 @dataclass
@@ -28,21 +28,21 @@ class EarlyConDrv(System):
 class EarlyConDrvTable(System):
     table: list[EarlyConDrv] = field(default_factory=list)
 
-    def register(self, sig: Signal):
+    def _register(self, sig: Signal):
         drv = sig.args["drv"]
         assert isinstance(drv, EarlyConDrv)
         self.table.append(drv)
 
-    def probe(self, sig: Signal):
+    def _probe(self, sig: Signal):
         drv = sig.args["drv"]
-        self.drive_all(sig.env, self.table, "setup", drv=drv)
+        self.drive_all(sig.env, self.table, "_setup", drv=drv)
 
 
 @dataclass
 class EarlyConParam(Param):
-    def parse(self, sig: Signal):
+    def _parse(self, sig: Signal):
         from global_vars import gv
 
         if sig.args["key"] == "earlycon" and sig.args["early"]:
             val = sig.args["val"]
-            self.drive(sig.env, gv.earlycon_driver_table, "probe", drv=val)
+            self.drive(sig.env, gv.earlycon_driver_table, "_probe", drv=val)

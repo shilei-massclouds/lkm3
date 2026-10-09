@@ -8,8 +8,8 @@ from framework.engine import Signal
 
 @dataclass
 class KthreaddFlow(TaskFlow):
-    def wait_for_work(self, sig: Signal):
+    def _wait_for_work(self, sig: Signal):
         assert sig.env.task is not None
         scheduler = sig.env.task._scheduler()
         while True:
-            self.drive(sig.env, scheduler, "schedule", block=True)
+            self.drive(sig.env, scheduler, "_schedule", block=True)

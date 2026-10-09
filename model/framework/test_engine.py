@@ -37,20 +37,20 @@ class Receiver(System):
     def __repr__(self):
         return self.name
 
-    def receive(self, sig: Signal):
+    def _receive(self, sig: Signal):
         self.environments.append(sig.env.cv)
         self.received.append(sig.args["payload"])
 
-    def enqueue(self, sig: Signal):
+    def _enqueue(self, sig: Signal):
         self.environments.append(sig.env.cv)
-        sig.chain(self, "receive", payload=sig.args["payload"])
+        sig.chain(self, "_receive", payload=sig.args["payload"])
 
-    def relay(self, sig: Signal):
+    def _relay(self, sig: Signal):
         self.environments.append(sig.env.cv)
         self.drive(
             sig.env,
             sig.args["recipient"],
-            "enqueue",
+            "_enqueue",
             payload=sig.args["payload"],
         )
 
@@ -68,7 +68,7 @@ def test_drive_source_and_nested_events(capsys):
     target = TransparentReceiver("Target")
     payload = object()
 
-    source.drive(env, relay, "relay", recipient=target, payload=payload)
+    source.drive(env, relay, "_relay", recipient=target, payload=payload)
 
     assert len(target.received) == 1
     assert target.received[0] is payload
@@ -79,10 +79,10 @@ def test_drive_source_and_nested_events(capsys):
     assert all(env is cv for env in target.environments)
     assert capsys.readouterr().out.splitlines() == [
         "Computer:",
-        "    relay -> Relay",
+        "    _relay -> Relay",
         "    Relay:",
-        "        enqueue -> Target",
-        "        receive -> Target",
+        "        _enqueue -> Target",
+        "        _receive -> Target",
     ]
     assert env.depth == 0
 
@@ -97,7 +97,7 @@ def test_drive_all_source_and_generator(capsys):
     ]
     payload = object()
 
-    source.drive_all(env, (target for target in targets), "receive", payload=payload)
+    source.drive_all(env, (target for target in targets), "_receive", payload=payload)
 
     for target in targets:
         assert len(target.received) == 1
@@ -106,9 +106,9 @@ def test_drive_all_source_and_generator(capsys):
         assert target.environments[0] is cv
     assert capsys.readouterr().out.splitlines() == [
         "Computer:",
-        "    receive -> First",
+        "    _receive -> First",
         "Computer:",
-        "    receive -> Second",
+        "    _receive -> Second",
     ]
     assert env.depth == 0
 
@@ -119,14 +119,14 @@ def test_drive_returns_root_result_without_chained_result():
     chained_result = object()
 
     class ReturningTarget(System):
-        def root(self, sig: Signal):
-            sig.chain(self, "chained")
+        def _root(self, sig: Signal):
+            sig.chain(self, "_chained")
             return root_result
 
-        def chained(self, sig: Signal):
+        def _chained(self, sig: Signal):
             return chained_result
 
-    assert System().drive(env, ReturningTarget(), "root") is root_result
+    assert System().drive(env, ReturningTarget(), "_root") is root_result
 
 
 def test_nested_drive_result_is_not_implicitly_returned():
@@ -134,13 +134,13 @@ def test_nested_drive_result_is_not_implicitly_returned():
     inner_result = object()
 
     class Nested(System):
-        def outer(self, sig: Signal):
-            self.drive(sig.env, self, "inner")
+        def _outer(self, sig: Signal):
+            self.drive(sig.env, self, "_inner")
 
-        def inner(self, sig: Signal):
+        def _inner(self, sig: Signal):
             return inner_result
 
-    assert System().drive(env, Nested(), "outer") is None
+    assert System().drive(env, Nested(), "_outer") is None
 
 
 def test_drive_all_returns_results_in_target_order():
@@ -151,7 +151,7 @@ def test_drive_all_returns_results_in_target_order():
         def __init__(self, result):
             self.result = result
 
-        def emit(self, sig: Signal):
+        def _emit(self, sig: Signal):
             return self.result
 
     targets = [
@@ -160,7 +160,7 @@ def test_drive_all_returns_results_in_target_order():
         ReturningTarget(None),
     ]
 
-    assert System().drive_all(env, targets, "emit") == [None, middle_result, None]
+    assert System().drive_all(env, targets, "_emit") == [None, middle_result, None]
 
 
 def test_drive_all_empty_targets_returns_empty_list():
@@ -177,7 +177,7 @@ def test_drive_all_exception_restores_environment_and_stops_iteration():
             self.name = name
             self.fail = fail
 
-        def emit(self, sig: Signal):
+        def _emit(self, sig: Signal):
             calls.append(self.name)
             if self.fail:
                 raise RuntimeError("emit failed")
@@ -185,7 +185,7 @@ def test_drive_all_exception_restores_environment_and_stops_iteration():
     targets = [Target("first"), Target("second", fail=True), Target("third")]
 
     with pytest.raises(RuntimeError, match="emit failed"):
-        System().drive_all(env, targets, "emit")
+        System().drive_all(env, targets, "_emit")
 
     assert calls == ["first", "second"]
     assert env.depth == 3
@@ -204,7 +204,7 @@ def test_signal_releases_environment_when_action_asserts():
             cv.protect(None, *DOMAINS)
             super().acquire(env, action)
 
-        def fail(self, sig: Signal):
+        def _fail(self, sig: Signal):
             calls.append(("action", sig.env.cv))
             assert sig.env.cv.local_irq == 0
             assert False, "action failed"
@@ -214,7 +214,7 @@ def test_signal_releases_environment_when_action_asserts():
             calls.append(("release", cv))
             cv.unprotect(None, *DOMAINS)
 
-    signal = Signal(FailingTarget(), "fail", {}, env, deque())
+    signal = Signal(FailingTarget(), "_fail", {}, env, deque())
 
     with pytest.raises(AssertionError, match="action failed"):
         signal.handle()
@@ -255,9 +255,9 @@ def test_redundant_protection_allows_exclusive_dispatch(cv):
     target = Receiver("Protected")
     payload = object()
 
-    assert target.check_invariant(env, "receive")
-    assert target.violated_domains(env, "receive") == []
-    Computer().drive(env, target, "receive", payload=payload)
+    assert target.check_invariant(env, "_receive")
+    assert target.violated_domains(env, "_receive") == []
+    Computer().drive(env, target, "_receive", payload=payload)
 
     assert target.received == [payload]
 
@@ -271,10 +271,10 @@ def test_negative_contention_cannot_offset_a_positive_domain(domain):
     setattr(cv, domain, 1)
     target = Receiver("Target")
 
-    assert not target.check_invariant(env, "receive")
-    assert target.violated_domains(env, "receive") == [domain]
+    assert not target.check_invariant(env, "_receive")
+    assert target.violated_domains(env, "_receive") == [domain]
     with pytest.raises(AssertionError, match=f"violated domains: {domain}"):
-        Computer().drive(env, target, "receive", payload=object())
+        Computer().drive(env, target, "_receive", payload=object())
 
     assert not target.received
 
@@ -308,12 +308,12 @@ def test_visibility_defaults_to_full_scope_and_resolves_method_before_class():
     @declare_visibility(ContentionVector(remote_tasks=0))
     class VisibleReceiver(Receiver):
         @declare_visibility(ContentionVector(local_irq=0))
-        def receive(self, sig: Signal):
-            super().receive(sig)
+        def _receive(self, sig: Signal):
+            super()._receive(sig)
 
     target = VisibleReceiver("Visible")
-    method_visibility = target.resolve_visibility("receive")
-    class_visibility = target.resolve_visibility("enqueue")
+    method_visibility = target.resolve_visibility("_receive")
+    class_visibility = target.resolve_visibility("_enqueue")
 
     assert method_visibility.local_irq == 0
     assert method_visibility.local_tasks == 1
@@ -321,7 +321,7 @@ def test_visibility_defaults_to_full_scope_and_resolves_method_before_class():
     assert method_visibility.remote_tasks == 1
     assert class_visibility.remote_tasks == 0
     method_visibility.local_irq = 1
-    assert target.resolve_visibility("receive").local_irq == 0
+    assert target.resolve_visibility("_receive").local_irq == 0
     default_visibility = System().resolve_visibility()
     assert default_visibility is not FULLSCOPE_CV
     assert all(getattr(default_visibility, domain) == 1 for domain in DOMAINS)
@@ -336,25 +336,25 @@ def test_visibility_defaults_to_full_scope_and_resolves_method_before_class():
     )
 
     assert target.check_invariant(
-        TaskLocalEnv(ContentionVector(zero=True, local_irq=0)), "receive"
+        TaskLocalEnv(ContentionVector(zero=True, local_irq=0)), "_receive"
     )
     assert target.check_invariant(
-        TaskLocalEnv(ContentionVector(zero=True, remote_tasks=0)), "enqueue"
+        TaskLocalEnv(ContentionVector(zero=True, remote_tasks=0)), "_enqueue"
     )
-    assert not target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "receive")
+    assert not target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "_receive")
 
 
 def test_transparent_visibility_masks_a_convenience_wrapper():
     @declare_visibility(TRANSPARENT_CV)
     class ConvenienceWrapper(System):
-        def run(self, sig: Signal):
+        def _run(self, sig: Signal):
             pass
 
     target = ConvenienceWrapper()
     assert all(
-        getattr(target.resolve_visibility("run"), domain) == 0 for domain in DOMAINS
+        getattr(target.resolve_visibility("_run"), domain) == 0 for domain in DOMAINS
     )
-    assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "run")
+    assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "_run")
 
 
 def test_drive_stops_before_action_when_invariant_fails():
@@ -364,7 +364,7 @@ def test_drive_stops_before_action_when_invariant_fails():
     target = Receiver("Target")
 
     with pytest.raises(AssertionError, match="Contention invariant violated"):
-        source.drive(env, target, "receive", payload=object())
+        source.drive(env, target, "_receive", payload=object())
 
     assert not target.received
     assert not target.environments
@@ -382,10 +382,10 @@ def test_yield_try_lock_allows_exclusive_dispatch_when_irq_contention_remains():
         with pytest.raises(
             AssertionError, match="violated domains: local_irq, remote_irq"
         ):
-            source.drive(env, target, "receive", payload=payload)
+            source.drive(env, target, "_receive", payload=payload)
         assert not target.received
         with GuardYieldTryLock(cv, target):
-            source.drive(env, target, "receive", payload=payload)
+            source.drive(env, target, "_receive", payload=payload)
         assert (cv.local_irq, cv.remote_irq) == (1, 1)
         assert (cv.local_tasks, cv.remote_tasks) == (0, 0)
 
@@ -413,13 +413,13 @@ def test_combined_busy_wait_guards_enforce_exclusive_dispatch_boundaries(
 
     with guard_type(cv, target):
         if unprotected_domain is None:
-            source.drive(env, target, "receive", payload=payload)
+            source.drive(env, target, "_receive", payload=payload)
             assert target.received == [payload]
         else:
             with pytest.raises(
                 AssertionError, match=f"violated domains: {unprotected_domain}"
             ):
-                source.drive(env, target, "receive", payload=payload)
+                source.drive(env, target, "_receive", payload=payload)
             assert not target.received
 
     assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
@@ -434,9 +434,9 @@ def test_lock_targets_are_checked_by_identity_before_the_action_runs():
 
     with GuardYieldTryLock(cv, equal_target):
         assert all(getattr(cv, domain) == 0 for domain in DOMAINS)
-        assert target.violated_domains(env, "receive") == list(DOMAINS)
+        assert target.violated_domains(env, "_receive") == list(DOMAINS)
         with pytest.raises(AssertionError, match="Contention invariant violated"):
-            Computer().drive(env, target, "receive", payload="rejected")
+            Computer().drive(env, target, "_receive", payload="rejected")
 
         assert not target.received and not target.environments
 
@@ -447,15 +447,15 @@ def test_each_domain_requires_its_own_target_or_global_protection():
     target, other = Receiver("Target"), Receiver("Other")
 
     with GuardBusyWaitIrqSavePreemption(cv, other):
-        assert target.violated_domains(env, "receive") == [
+        assert target.violated_domains(env, "_receive") == [
             "remote_irq",
             "remote_tasks",
         ]
         with GuardBusyWaitPreemption(cv, target):
-            Computer().drive(env, target, "receive", payload="accepted")
+            Computer().drive(env, target, "_receive", payload="accepted")
             # The outer target remains protected even with a different stack top.
-            assert other.check_invariant(env, "receive")
-        assert target.violated_domains(env, "receive") == [
+            assert other.check_invariant(env, "_receive")
+        assert target.violated_domains(env, "_receive") == [
             "remote_irq",
             "remote_tasks",
         ]
@@ -471,7 +471,7 @@ def test_global_protection_anywhere_in_a_stack_covers_other_targets():
 
     with GuardYieldTryLock(cv, None), GuardYieldTryLock(cv, other):
         assert all(cv.stacks[domain] == [None, other] for domain in DOMAINS)
-        Computer().drive(env, target, "receive", payload="accepted")
+        Computer().drive(env, target, "_receive", payload="accepted")
 
     assert target.received == ["accepted"]
 
@@ -483,9 +483,9 @@ def test_numerical_zero_without_a_protection_reference_is_rejected():
     for domain in DOMAINS:
         setattr(cv, domain, 0)
 
-    assert target.violated_domains(env, "receive") == list(DOMAINS)
-    assert not target.check_invariant(env, "receive")
-    assert TransparentReceiver("Wrapper").check_invariant(env, "receive")
+    assert target.violated_domains(env, "_receive") == list(DOMAINS)
+    assert not target.check_invariant(env, "_receive")
+    assert TransparentReceiver("Wrapper").check_invariant(env, "_receive")
 
 
 def test_matching_stack_cannot_override_positive_contention():
@@ -495,8 +495,8 @@ def test_matching_stack_cannot_override_positive_contention():
 
     with GuardYieldTryLock(cv, target):
         cv.remote_tasks = 1
-        assert target.violated_domains(env, "receive") == ["remote_tasks"]
-        assert not target.check_invariant(env, "receive")
+        assert target.violated_domains(env, "_receive") == ["remote_tasks"]
+        assert not target.check_invariant(env, "_receive")
 
 
 @pytest.mark.parametrize("scope", [CPUSCOPE_CV, TRANSPARENT_CV])
@@ -510,7 +510,7 @@ def test_hidden_domains_do_not_require_matching_lock_targets(scope):
     target = ScopedReceiver("Target")
 
     with GuardBusyWaitIrqSavePreemption(cv, object()):
-        Computer().drive(env, target, "receive", payload="accepted")
+        Computer().drive(env, target, "_receive", payload="accepted")
 
     assert target.received == ["accepted"]
 
@@ -521,9 +521,9 @@ def test_targeted_yield_lock_keeps_local_protection_target_specific():
     target, other = Receiver("Target"), Receiver("Other")
 
     with GuardYieldTryLock(cv, other), GuardBusyWaitPreemption(cv, target):
-        assert target.violated_domains(env, "receive") == ["local_irq"]
+        assert target.violated_domains(env, "_receive") == ["local_irq"]
         with GuardLocalIrq(cv):
-            Computer().drive(env, target, "receive", payload="accepted")
+            Computer().drive(env, target, "_receive", payload="accepted")
 
     assert target.received == ["accepted"]
 
@@ -531,8 +531,8 @@ def test_targeted_yield_lock_keeps_local_protection_target_specific():
 @pytest.mark.parametrize("declaration", ["class", "method"])
 def test_requires_cv_warns_at_creation_and_preserves_dispatch(declaration):
     class LegacyReceiver(Receiver):
-        def receive(self, sig: Signal):
-            super().receive(sig)
+        def _receive(self, sig: Signal):
+            super()._receive(sig)
 
     frame = currentframe()
     assert frame is not None
@@ -543,17 +543,17 @@ def test_requires_cv_warns_at_creation_and_preserves_dispatch(declaration):
         if declaration == "class":
             assert decorate(LegacyReceiver) is LegacyReceiver
         else:
-            method = LegacyReceiver.receive
+            method = LegacyReceiver._receive
             assert decorate(method) is method
 
         target = LegacyReceiver("Legacy")
         cv = ContentionVector(remote_irq=0)
-        Computer().drive(TaskLocalEnv(cv), target, "receive", payload="allowed")
+        Computer().drive(TaskLocalEnv(cv), target, "_receive", payload="allowed")
         with pytest.raises(AssertionError, match="violated domains: remote_irq"):
             Computer().drive(
                 TaskLocalEnv(ContentionVector.ones()),
                 target,
-                "receive",
+                "_receive",
                 payload="blocked",
             )
 
@@ -574,26 +574,26 @@ def test_nested_drives_finish_before_their_callers_pending_signals():
     env = TaskLocalEnv()
 
     class Nested(System):
-        def outer(self, sig: Signal):
+        def _outer(self, sig: Signal):
             events.append("outer start")
-            sig.chain(self, "record", event="outer next")
-            self.drive(sig.env, self, "inner", outer=sig)
+            sig.chain(self, "_record", event="outer next")
+            self.drive(sig.env, self, "_inner", outer=sig)
             events.append("outer resumed")
 
-        def inner(self, sig: Signal):
+        def _inner(self, sig: Signal):
             events.append("inner start")
             outer = sig.args["outer"]
             assert sig.queue is not outer.queue
             assert sig.env.signal_queues == [outer.queue, sig.queue]
             # Chaining from an outer signal still belongs to the outer invocation.
-            outer.chain(self, "record", event="outer late")
-            sig.chain(self, "record", event="inner next")
+            outer.chain(self, "_record", event="outer late")
+            sig.chain(self, "_record", event="inner next")
 
-        def record(self, sig: Signal):
+        def _record(self, sig: Signal):
             events.append(sig.args["event"])
 
     target = Nested()
-    System().drive(env, target, "outer")
+    System().drive(env, target, "_outer")
 
     assert events == [
         "outer start",
@@ -613,11 +613,11 @@ def test_nested_failure_restores_surrounding_queue_stack_and_depth(caught):
     events: list[str] = []
 
     class Nested(System):
-        def outer(self, sig: Signal):
-            sig.chain(self, "record", event="outer next")
+        def _outer(self, sig: Signal):
+            sig.chain(self, "_record", event="outer next")
             queue = sig.queue
             try:
-                self.drive(sig.env, self, "inner")
+                self.drive(sig.env, self, "_inner")
             except AssertionError:
                 assert sig.env.depth == 4
                 assert sig.env.signal_queues == [parent_queue, queue]
@@ -625,20 +625,20 @@ def test_nested_failure_restores_surrounding_queue_stack_and_depth(caught):
                     raise
                 events.append("caught")
 
-        def inner(self, sig: Signal):
-            sig.chain(self, "record", event="abandoned")
+        def _inner(self, sig: Signal):
+            sig.chain(self, "_record", event="abandoned")
             assert False, "inner failed"
 
-        def record(self, sig: Signal):
+        def _record(self, sig: Signal):
             events.append(sig.args["event"])
 
     target = Nested()
     if caught:
-        System().drive(env, target, "outer")
+        System().drive(env, target, "_outer")
         assert events == ["caught", "outer next"]
     else:
         with pytest.raises(AssertionError, match="inner failed"):
-            System().drive(env, target, "outer")
+            System().drive(env, target, "_outer")
         assert events == []
     assert env.depth == 3
     assert env.signal_queues == [parent_queue]

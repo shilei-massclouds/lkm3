@@ -21,7 +21,7 @@ LOCAL_CV = ContentionVector(zero=True, local_irq=1, local_tasks=1)
 
 
 class EmptyFlow(TaskFlow):
-    def start(self, sig: Signal):
+    def _start(self, sig: Signal):
         pass
 
 
@@ -31,21 +31,21 @@ def runtime():
     idle.greenlet = getcurrent()
     idle.state = TaskState.RUNNING
     scheduler = Scheduler()
-    System().drive(idle.env, scheduler, "setup")
+    System().drive(idle.env, scheduler, "_setup")
     return idle, scheduler
 
 
 def prepare(source: System, env: TaskLocalEnv, task: Task, *, wake: bool = True):
-    source.drive(env, task, "setup")
+    source.drive(env, task, "_setup")
     if wake:
-        source.drive(env, task, "wake_up_new_task")
+        source.drive(env, task, "_wake_up_new_task")
 
 
 def test_scheduler_uses_a_fullscope_run_queue_boundary():
     scheduler = Scheduler()
 
     assert isinstance(scheduler.runq, RunQueue)
-    for action in ("enqueue", "select"):
+    for action in ("_enqueue", "_select"):
         visible = scheduler.runq.resolve_visibility(action)
         assert all(
             getattr(visible, domain) == 1
@@ -62,7 +62,7 @@ def test_task_lock_does_not_authorize_runqueue_mutation(runtime):
     idle, scheduler = runtime
     source = System()
     idle.env.cv = ContentionVector.ones()
-    task = Task("new", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    task = Task("new", EmptyFlow(), "_start", LOCAL_CV, scheduler)
     prepare(source, idle.env, task, wake=False)
 
     with GuardBusyWaitIrqSavePreemption(idle.env.cv, task):
@@ -72,14 +72,14 @@ def test_task_lock_does_not_authorize_runqueue_mutation(runtime):
             source.drive(
                 idle.env,
                 scheduler.runq,
-                "enqueue",
+                "_enqueue",
                 task=task,
                 expected_state=TaskState.PREPARED,
             )
         assert task.state is TaskState.PREPARED
         assert not scheduler.runq
 
-    source.drive(idle.env, task, "wake_up_new_task")
+    source.drive(idle.env, task, "_wake_up_new_task")
     assert task.state is TaskState.READY
     assert list(scheduler.runq) == [task]
     assert all(not stack for stack in idle.env.cv.stacks.values())
@@ -88,10 +88,10 @@ def test_task_lock_does_not_authorize_runqueue_mutation(runtime):
 def test_new_task_activation_records_both_protected_targets(runtime, monkeypatch):
     idle, scheduler = runtime
     idle.env.cv = ContentionVector.ones()
-    task = Task("new", EmptyFlow(), "start", LOCAL_CV, scheduler)
-    enqueue = RunQueue.enqueue
+    task = Task("new", EmptyFlow(), "_start", LOCAL_CV, scheduler)
+    enqueue = RunQueue._enqueue
 
-    def observe_enqueue(self: RunQueue, sig: Signal):
+    def _observe_enqueue(self: RunQueue, sig: Signal):
         assert sig.env.cv.stacks["local_irq"] == [None]
         assert sig.env.cv.stacks["local_tasks"] == [None, None]
         assert sig.env.cv.stacks["remote_irq"][0] is task
@@ -100,7 +100,7 @@ def test_new_task_activation_records_both_protected_targets(runtime, monkeypatch
         assert sig.env.cv.stacks["remote_tasks"][1] is self
         enqueue(self, sig)
 
-    monkeypatch.setattr(RunQueue, "enqueue", observe_enqueue)
+    monkeypatch.setattr(RunQueue, "_enqueue", _observe_enqueue)
     prepare(System(), idle.env, task)
     assert list(scheduler.runq) == [task]
     assert all(not stack for stack in idle.env.cv.stacks.values())
@@ -110,9 +110,9 @@ def test_task_flow_instances_cannot_be_shared(runtime):
     _idle, scheduler = runtime
     flow = EmptyFlow()
 
-    Task("first", flow, "start", LOCAL_CV, scheduler)
+    Task("first", flow, "_start", LOCAL_CV, scheduler)
     with pytest.raises(AssertionError, match="cannot be shared between tasks"):
-        Task("second", flow, "start", LOCAL_CV, scheduler)
+        Task("second", flow, "_start", LOCAL_CV, scheduler)
 
 
 @pytest.mark.parametrize(
@@ -137,7 +137,7 @@ def test_round_robin_self_yield_and_finished_tasks(runtime, rounds, expected):
             super().__init__()
             self.count = count
 
-        def start(self, sig: Signal):
+        def _start(self, sig: Signal):
             task = sig.env.task
             assert task is not None
             for index in range(self.count):
@@ -145,11 +145,11 @@ def test_round_robin_self_yield_and_finished_tasks(runtime, rounds, expected):
                 assert all(queued is not task for queued in scheduler.runq)
                 assert scheduler.idle not in scheduler.runq
                 events.append(f"{task.name}{index}")
-                self.drive(sig.env, scheduler, "schedule")
+                self.drive(sig.env, scheduler, "_schedule")
             events.append(f"{task.name} end")
 
     tasks = [
-        Task(name, Flow(count), "start", LOCAL_CV, scheduler)
+        Task(name, Flow(count), "_start", LOCAL_CV, scheduler)
         for name, count in zip("abc", rounds)
     ]
     for task in tasks:
@@ -158,7 +158,7 @@ def test_round_robin_self_yield_and_finished_tasks(runtime, rounds, expected):
         assert task.greenlet.parent is idle.greenlet is getcurrent()
     assert events == []
     assert list(scheduler.runq) == tasks
-    source.drive(bootstrap, scheduler, "schedule")
+    source.drive(bootstrap, scheduler, "_schedule")
     assert events == expected
     for task in tasks:
         assert task.greenlet is not None and task.greenlet.dead
@@ -169,7 +169,7 @@ def test_round_robin_self_yield_and_finished_tasks(runtime, rounds, expected):
     assert not hasattr(scheduler, "run")
     assert not hasattr(scheduler, "context")
     assert not hasattr(scheduler, "_dispatch")
-    source.drive(bootstrap, scheduler, "schedule")
+    source.drive(bootstrap, scheduler, "_schedule")
     assert events == expected
 
 
@@ -179,11 +179,11 @@ def test_tasks_switch_directly_on_yield_and_exit(runtime):
     switches: list[tuple[greenlet, greenlet]] = []
 
     class Flow(TaskFlow):
-        def start(self, sig: Signal):
-            self.drive(sig.env, scheduler, "schedule")
+        def _start(self, sig: Signal):
+            self.drive(sig.env, scheduler, "_schedule")
 
-    first = Task("a", Flow(), "start", LOCAL_CV, scheduler)
-    second = Task("b", Flow(), "start", LOCAL_CV, scheduler)
+    first = Task("a", Flow(), "_start", LOCAL_CV, scheduler)
+    second = Task("b", Flow(), "_start", LOCAL_CV, scheduler)
     for task in (first, second):
         prepare(source, idle.env, task)
 
@@ -194,7 +194,7 @@ def test_tasks_switch_directly_on_yield_and_exit(runtime):
     previous_trace = gettrace()
     settrace(trace)
     try:
-        source.drive(idle.env, scheduler, "schedule")
+        source.drive(idle.env, scheduler, "_schedule")
     finally:
         settrace(previous_trace)
 
@@ -217,22 +217,22 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
     suspended: dict[str, tuple[TaskLocalEnv, tuple[deque[Signal], ...]]] = {}
 
     class Flow(TaskFlow):
-        def start(self, sig: Signal):
+        def _start(self, sig: Signal):
             task = sig.env.task
             assert task is not None
             events.append(f"{task.name} start")
-            sig.chain(self, "pending", label="outer next")
-            self.drive(sig.env, self, "nested", outer=sig)
+            sig.chain(self, "_pending", label="outer next")
+            self.drive(sig.env, self, "_nested", outer=sig)
             events.append(f"{task.name} start resumed")
 
-        def nested(self, sig: Signal):
+        def _nested(self, sig: Signal):
             env = sig.env
             task = env.task
             assert task is not None
             token = object()
             outer = sig.args["outer"]
-            outer.chain(self, "pending", label="outer late")
-            sig.chain(self, "pending", label="inner next", token=token)
+            outer.chain(self, "_pending", label="outer late")
+            sig.chain(self, "_pending", label="inner next", token=token)
             queues = tuple(env.signal_queues)
             assert env.depth == 2 and len(queues) == 2
             suspended[task.name] = (env, queues)
@@ -252,7 +252,7 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
                     )
                     assert not any("released" in event for event in events)
                 events.append(f"{task.name} yielding")
-                self.drive(env, scheduler, "schedule")
+                self.drive(env, scheduler, "_schedule")
                 assert sig.env is env is task.env
                 assert env.depth == 2
                 assert len(env.signal_queues) == len(queues)
@@ -264,13 +264,13 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
                 assert outer.queue is queues[0]
                 events.append(f"{task.name} nested resumed")
 
-        def pending(self, sig: Signal):
+        def _pending(self, sig: Signal):
             task = sig.env.task
             assert task is not None
             events.append(f"{task.name} {sig.args['label']}")
 
         def release(self, env: TaskLocalEnv, action: str):
-            if action == "nested":
+            if action == "_nested":
                 assert env.task is not None
                 events.append(f"{env.task.name} nested released")
 
@@ -279,13 +279,13 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
     second_flow = Flow()
     assert first_flow is not second_flow
     original = ContentionVector(zero=True, local_tasks=1)
-    first = Task("a", first_flow, "start", original, scheduler)
-    second = Task("b", second_flow, "start", LOCAL_CV, scheduler)
+    first = Task("a", first_flow, "_start", original, scheduler)
+    second = Task("b", second_flow, "_start", LOCAL_CV, scheduler)
     original.local_irq = 9
     assert first.env.cv.local_irq == 0
     for task in (first, second):
         prepare(source, bootstrap, task)
-    source.drive(bootstrap, scheduler, "schedule")
+    source.drive(bootstrap, scheduler, "_schedule")
 
     assert events == [
         "a start",
@@ -310,35 +310,35 @@ def test_nested_yields_preserve_locals_environments_queues_and_release_timing(
     assert first.env.signal_queues == second.env.signal_queues == []
     lines = capsys.readouterr().out.splitlines()
     flow_repr = repr(first_flow)
-    assert lines.count(f"    start -> {flow_repr}") == 2
-    assert lines.count(f"        nested -> {flow_repr}") == 2
-    assert lines.count("            schedule -> Scheduler()") == 2
-    assert lines.count(f"    pending -> {flow_repr}") == 2
-    assert lines.count(f"        pending -> {flow_repr}") == 4
+    assert lines.count(f"    _start -> {flow_repr}") == 2
+    assert lines.count(f"        _nested -> {flow_repr}") == 2
+    assert lines.count("            _schedule -> Scheduler()") == 2
+    assert lines.count(f"    _pending -> {flow_repr}") == 2
+    assert lines.count(f"        _pending -> {flow_repr}") == 4
 
 
 def test_task_lifecycle_rejects_invalid_setup_and_wake(runtime):
     idle, scheduler = runtime
     source = System()
     env = idle.env
-    task = Task("task", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    task = Task("task", EmptyFlow(), "_start", LOCAL_CV, scheduler)
     with pytest.raises(AssertionError, match="not been set up"):
-        source.drive(env, task, "wake_up_new_task")
+        source.drive(env, task, "_wake_up_new_task")
     prepare(source, env, task, wake=False)
     with pytest.raises(AssertionError, match="already been set up"):
-        source.drive(env, task, "setup")
-    source.drive(env, task, "wake_up_new_task")
-    with pytest.raises(AssertionError, match="not ready to wake_up_new_task"):
-        source.drive(env, task, "wake_up_new_task")
-    foreign = Task("foreign", EmptyFlow(), "start", LOCAL_CV, Scheduler())
+        source.drive(env, task, "_setup")
+    source.drive(env, task, "_wake_up_new_task")
+    with pytest.raises(AssertionError, match="not ready to _wake_up_new_task"):
+        source.drive(env, task, "_wake_up_new_task")
+    foreign = Task("foreign", EmptyFlow(), "_start", LOCAL_CV, Scheduler())
     with pytest.raises(AssertionError, match="different scheduler"):
-        source.drive(env, scheduler, "get_rq", task=foreign)
+        source.drive(env, scheduler, "_get_rq", task=foreign)
     assert list(scheduler.runq) == [task]
-    source.drive(env, scheduler, "schedule")
+    source.drive(env, scheduler, "_schedule")
     with pytest.raises(AssertionError, match="already ended"):
-        source.drive(env, task, "wake_up_new_task")
+        source.drive(env, task, "_wake_up_new_task")
     with pytest.raises(AssertionError, match="already been set up"):
-        source.drive(env, task, "setup")
+        source.drive(env, task, "_setup")
     assert env.depth == 0 and env.signal_queues == []
 
 
@@ -346,24 +346,24 @@ def test_schedule_rejects_bootstrap_foreign_task_and_forged_environments(runtime
     idle, scheduler = runtime
     source = System()
     bootstrap = idle.env
-    other = Task("other", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    other = Task("other", EmptyFlow(), "_start", LOCAL_CV, scheduler)
     with pytest.raises(AssertionError, match="current task"):
-        source.drive(TaskLocalEnv(), scheduler, "schedule")
+        source.drive(TaskLocalEnv(), scheduler, "_schedule")
 
     class Flow(TaskFlow):
-        def start(self, sig: Signal):
+        def _start(self, sig: Signal):
             task = sig.env.task
             assert task is not None
             for invalid_env in (TaskLocalEnv(), other.env, TaskLocalEnv(task=task)):
                 with pytest.raises(AssertionError, match="current task"):
-                    self.drive(invalid_env, scheduler, "schedule")
-            with pytest.raises(AssertionError, match="not ready to wake_up_new_task"):
-                self.drive(sig.env, task, "wake_up_new_task")
-            self.drive(sig.env, scheduler, "schedule")
+                    self.drive(invalid_env, scheduler, "_schedule")
+            with pytest.raises(AssertionError, match="not ready to _wake_up_new_task"):
+                self.drive(sig.env, task, "_wake_up_new_task")
+            self.drive(sig.env, scheduler, "_schedule")
 
-    task = Task("current", Flow(), "start", LOCAL_CV, scheduler)
+    task = Task("current", Flow(), "_start", LOCAL_CV, scheduler)
     prepare(source, bootstrap, task)
-    source.drive(bootstrap, scheduler, "schedule")
+    source.drive(bootstrap, scheduler, "_schedule")
     assert task.greenlet is not None and task.greenlet.dead
     assert not scheduler.runq and scheduler.current is idle
 
@@ -371,12 +371,12 @@ def test_schedule_rejects_bootstrap_foreign_task_and_forged_environments(runtime
 @pytest.mark.parametrize("domain", ["remote_irq", "remote_tasks"])
 def test_runqueue_enqueue_rejects_remote_contention(domain):
     scheduler = Scheduler()
-    task = Task("task", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    task = Task("task", EmptyFlow(), "_start", LOCAL_CV, scheduler)
     cv = ContentionVector(zero=True)
     cv.expose(domain)
     env = TaskLocalEnv(cv)
     with pytest.raises(AssertionError, match=f"violated domains: {domain}"):
-        System().drive(env, scheduler.runq, "enqueue", task=task)
+        System().drive(env, scheduler.runq, "_enqueue", task=task)
     assert env.depth == 0 and env.signal_queues == []
 
 
@@ -388,19 +388,19 @@ def test_schedule_protects_runqueue_against_remote_contention(
     env = idle.env
     env.cv.expose(domain)
     initial_stacks = {name: list(stack) for name, stack in env.cv.stacks.items()}
-    select = RunQueue.select
+    select = RunQueue._select
     selections: list[RunQueue] = []
 
-    def observe_select(self: RunQueue, sig: Signal):
+    def _observe_select(self: RunQueue, sig: Signal):
         assert getattr(sig.env.cv, domain) == 0
         assert sig.env.cv.stacks[domain][-1] is self
         selections.append(self)
         select(self, sig)
 
-    monkeypatch.setattr(RunQueue, "select", observe_select)
+    monkeypatch.setattr(RunQueue, "_select", _observe_select)
 
-    assert scheduler.check_invariant(env, "switch")
-    System().drive(env, scheduler, "schedule")
+    assert scheduler.check_invariant(env, "_switch")
+    System().drive(env, scheduler, "_schedule")
 
     assert selections == [scheduler.runq]
     assert scheduler.runq.selected is idle and not scheduler.runq
@@ -415,7 +415,7 @@ def test_switch_tails_balance_first_entry_resume_and_exit(runtime, monkeypatch):
     idle.env.cv = ContentionVector.ones()
     source = System()
     transitions: list[tuple[str, str]] = []
-    finish_switch = Scheduler.finish_switch
+    finish_switch = Scheduler._finish_switch
     lock = BusyWaitPreemption.lock
     unlock = BusyWaitPreemption.unlock
     enable_irq = LocalIrq.enable
@@ -434,7 +434,7 @@ def test_switch_tails_balance_first_entry_resume_and_exit(runtime, monkeypatch):
         enable_irq(self, cv)
 
     @visibility(CPUSCOPE_CV)
-    def observe_finish(self: Scheduler, sig: Signal):
+    def _observe_finish(self: Scheduler, sig: Signal):
         task = sig.env.task
         previous = sig.args["previous"]
         assert task is not None and task.greenlet is getcurrent()
@@ -459,23 +459,23 @@ def test_switch_tails_balance_first_entry_resume_and_exit(runtime, monkeypatch):
             assert all(not stack for stack in previous.env.cv.stacks.values())
 
     class Flow(TaskFlow):
-        def start(self, sig: Signal):
+        def _start(self, sig: Signal):
             assert all(not stack for stack in sig.env.cv.stacks.values())
-            self.drive(sig.env, scheduler, "schedule")
+            self.drive(sig.env, scheduler, "_schedule")
             assert all(not stack for stack in sig.env.cv.stacks.values())
 
-    monkeypatch.setattr(Scheduler, "finish_switch", observe_finish)
+    monkeypatch.setattr(Scheduler, "_finish_switch", _observe_finish)
     monkeypatch.setattr(BusyWaitPreemption, "lock", observe_lock)
     monkeypatch.setattr(BusyWaitPreemption, "unlock", observe_unlock)
     monkeypatch.setattr(LocalIrq, "enable", observe_enable_irq)
     tasks = [
-        Task("a", Flow(), "start", ContentionVector.ones(), scheduler),
-        Task("b", EmptyFlow(), "start", ContentionVector.ones(), scheduler),
-        Task("c", EmptyFlow(), "start", ContentionVector.ones(), scheduler),
+        Task("a", Flow(), "_start", ContentionVector.ones(), scheduler),
+        Task("b", EmptyFlow(), "_start", ContentionVector.ones(), scheduler),
+        Task("c", EmptyFlow(), "_start", ContentionVector.ones(), scheduler),
     ]
     for task in tasks:
         prepare(source, idle.env, task)
-    source.drive(idle.env, scheduler, "schedule")
+    source.drive(idle.env, scheduler, "_schedule")
 
     assert transitions == [
         ("boot_init", "a"),
@@ -498,7 +498,7 @@ def test_switch_still_requires_local_protection(runtime, domain):
     idle.env.cv.expose(domain)
 
     with pytest.raises(AssertionError, match=f"violated domains: {domain}"):
-        System().drive(idle.env, scheduler, "switch")
+        System().drive(idle.env, scheduler, "_switch")
 
     assert idle.state is TaskState.RUNNING
     assert scheduler.current is idle and not scheduler.runq
@@ -507,9 +507,9 @@ def test_switch_still_requires_local_protection(runtime, domain):
 
 def test_setup_rejects_an_unrelated_greenlet_context(runtime):
     idle, scheduler = runtime
-    task = Task("task", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    task = Task("task", EmptyFlow(), "_start", LOCAL_CV, scheduler)
     env = idle.env
-    context = greenlet(lambda: System().drive(env, task, "setup"))
+    context = greenlet(lambda: System().drive(env, task, "_setup"))
     with pytest.raises(AssertionError, match="current task"):
         context.switch()
     assert task.greenlet is None
@@ -522,7 +522,7 @@ def test_task_assertion_propagates_without_cancelling_queued_peers(runtime):
     events: list[str] = []
 
     class FailingFlow(TaskFlow):
-        def start(self, sig: Signal):
+        def _start(self, sig: Signal):
             with GuardLocalIrq(sig.env.cv):
                 assert False, "task assertion"
 
@@ -530,12 +530,12 @@ def test_task_assertion_propagates_without_cancelling_queued_peers(runtime):
             assert env.cv.local_irq == 1
             events.append("release failed action")
 
-    failed = Task("failed", FailingFlow(), "start", LOCAL_CV, scheduler)
-    queued = Task("queued", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    failed = Task("failed", FailingFlow(), "_start", LOCAL_CV, scheduler)
+    queued = Task("queued", EmptyFlow(), "_start", LOCAL_CV, scheduler)
     for task in (failed, queued):
         prepare(source, idle.env, task)
     with pytest.raises(AssertionError, match="task assertion"):
-        source.drive(idle.env, scheduler, "schedule")
+        source.drive(idle.env, scheduler, "_schedule")
     assert events == ["release failed action"]
     assert failed.greenlet is not None and failed.greenlet.dead
     assert failed.env.depth == 0 and failed.env.signal_queues == []
@@ -550,29 +550,29 @@ def test_task_zero_starts_directly_and_initializes_scheduler_during_its_flow():
     scheduler = Scheduler()
 
     class BootFlow(TaskFlow):
-        def start(self, sig: Signal):
+        def _start(self, sig: Signal):
             events.append("boot before scheduler")
             assert sig.env.task is boot
             assert boot.greenlet is getcurrent()
             assert boot.scheduler is None and scheduler.idle is None
-            self.drive(sig.env, scheduler, "setup")
+            self.drive(sig.env, scheduler, "_setup")
             assert scheduler.current is scheduler.idle is boot
-            worker = Task("worker", EmptyFlow(), "start", LOCAL_CV, scheduler, pid=1)
+            worker = Task("worker", EmptyFlow(), "_start", LOCAL_CV, scheduler, pid=1)
             prepare(self, sig.env, worker)
             assert worker.greenlet is not None and not worker.greenlet
-            sig.chain(self, "continued")
-            self.drive(sig.env, scheduler, "schedule")
+            sig.chain(self, "_continued")
+            self.drive(sig.env, scheduler, "_schedule")
             assert worker.state is TaskState.FINISHED
             assert scheduler.current is boot and not scheduler.runq
             events.append("boot resumed")
 
-        def continued(self, sig: Signal):
+        def _continued(self, sig: Signal):
             events.append("boot next signal")
 
     boot = BootInitTask()
     boot.flow = BootFlow()
-    boot.action = "start"
-    System().drive(TaskLocalEnv(), boot, "start")
+    boot.action = "_start"
+    System().drive(TaskLocalEnv(), boot, "_start")
     assert events == ["boot before scheduler", "boot resumed", "boot next signal"]
     assert boot.env.depth == 0 and boot.env.signal_queues == []
     assert scheduler.current is boot
@@ -583,24 +583,24 @@ def test_scheduler_requires_existing_task_zero_and_cannot_be_initialized_twice(r
     idle, initialized = runtime
     source = System()
     scheduler = Scheduler()
-    worker = Task("worker", EmptyFlow(), "start", LOCAL_CV, scheduler)
+    worker = Task("worker", EmptyFlow(), "_start", LOCAL_CV, scheduler)
     with pytest.raises(AssertionError, match="not been initialized"):
-        source.drive(TaskLocalEnv(), scheduler, "schedule")
+        source.drive(TaskLocalEnv(), scheduler, "_schedule")
     with pytest.raises(AssertionError, match="not been initialized"):
-        source.drive(idle.env, worker, "setup")
+        source.drive(idle.env, worker, "_setup")
     with pytest.raises(AssertionError, match="running task 0"):
-        source.drive(TaskLocalEnv(), scheduler, "setup")
+        source.drive(TaskLocalEnv(), scheduler, "_setup")
     with pytest.raises(AssertionError, match="already belongs"):
-        source.drive(idle.env, scheduler, "setup")
+        source.drive(idle.env, scheduler, "_setup")
     with pytest.raises(AssertionError, match="already been initialized"):
-        source.drive(idle.env, initialized, "setup")
-    unattached = Task("unattached", EmptyFlow(), "start", LOCAL_CV)
+        source.drive(idle.env, initialized, "_setup")
+    unattached = Task("unattached", EmptyFlow(), "_start", LOCAL_CV)
     with pytest.raises(AssertionError, match="no initialized scheduler"):
-        source.drive(idle.env, unattached, "setup")
+        source.drive(idle.env, unattached, "_setup")
     with pytest.raises(AssertionError, match="idle task cannot be queued"):
-        source.drive(idle.env, idle, "wake_up_new_task")
+        source.drive(idle.env, idle, "_wake_up_new_task")
     with pytest.raises(AssertionError, match="idle task cannot block"):
-        source.drive(idle.env, initialized, "schedule", block=True)
+        source.drive(idle.env, initialized, "_schedule", block=True)
     assert idle.state is TaskState.RUNNING
     assert initialized.current is idle and not initialized.runq
 
@@ -614,37 +614,37 @@ def test_blocked_task_leaves_run_queue_and_resumes_when_woken(
     events: list[str] = []
 
     class Flow(TaskFlow):
-        def start(self, sig: Signal):
+        def _start(self, sig: Signal):
             token = object()
-            sig.chain(self, "pending", token=token)
+            sig.chain(self, "_pending", token=token)
             with GuardLocalIrq(sig.env.cv):
                 events.append("blocked")
-                self.drive(sig.env, scheduler, "schedule", block=True)
+                self.drive(sig.env, scheduler, "_schedule", block=True)
                 assert sig.queue[0].args["token"] is token
                 assert sig.env.cv.local_irq == 0
                 events.append("resumed")
 
-        def pending(self, sig: Signal):
+        def _pending(self, sig: Signal):
             events.append("pending")
 
     if remote_contention:
         idle.env.cv.expose("remote_irq", "remote_tasks")
     cv = ContentionVector.ones() if remote_contention else LOCAL_CV
-    task = Task("worker", Flow(), "start", cv, scheduler)
+    task = Task("worker", Flow(), "_start", cv, scheduler)
     prepare(source, idle.env, task)
-    source.drive(idle.env, scheduler, "schedule")
+    source.drive(idle.env, scheduler, "_schedule")
     assert events == ["blocked"]
     assert task.state is TaskState.BLOCKED
     assert task.greenlet is not None and not task.greenlet.dead
     assert task.env.depth == 3 and len(task.env.signal_queues) == 3
     assert task.env.cv.local_irq == -1
     assert scheduler.current is idle and not scheduler.runq
-    source.drive(idle.env, scheduler, "schedule")
+    source.drive(idle.env, scheduler, "_schedule")
     assert events == ["blocked"]
-    source.drive(idle.env, scheduler, "wake", task=task)
+    source.drive(idle.env, scheduler, "_wake", task=task)
     assert task.state is TaskState.READY
     assert list(scheduler.runq) == [task]
-    source.drive(idle.env, scheduler, "schedule")
+    source.drive(idle.env, scheduler, "_schedule")
     assert events == ["blocked", "resumed", "pending"]
     assert task.state is TaskState.FINISHED and task.greenlet.dead
     assert task.env.depth == 0 and task.env.signal_queues == []
@@ -659,19 +659,19 @@ def test_a_running_task_can_prepare_and_enable_another_task(runtime):
     events: list[str] = []
 
     class Flow(TaskFlow):
-        def start(self, sig: Signal):
+        def _start(self, sig: Signal):
             events.append("parent")
-            child = Task("child", Flow(), "child", LOCAL_CV, scheduler)
+            child = Task("child", Flow(), "_child", LOCAL_CV, scheduler)
             prepare(self, sig.env, child)
-            self.drive(sig.env, scheduler, "schedule")
+            self.drive(sig.env, scheduler, "_schedule")
             events.append("parent resumed")
 
-        def child(self, sig: Signal):
+        def _child(self, sig: Signal):
             events.append("child")
 
-    task = Task("parent", Flow(), "start", LOCAL_CV, scheduler)
+    task = Task("parent", Flow(), "_start", LOCAL_CV, scheduler)
     source = System()
     prepare(source, idle.env, task)
-    source.drive(idle.env, scheduler, "schedule")
+    source.drive(idle.env, scheduler, "_schedule")
     assert events == ["parent", "child", "parent resumed"]
     assert scheduler.current is idle and not scheduler.runq

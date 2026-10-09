@@ -11,33 +11,33 @@ from kernel.task import KernelInitTask, KThreaddTask
 
 @dataclass
 class BootInitFlow(TaskFlow):
-    def arch_boot(self, sig: Signal):
-        sig.chain(self, "early_setup")
+    def _arch_boot(self, sig: Signal):
+        sig.chain(self, "_early_setup")
 
-    def early_setup(self, sig: Signal):
+    def _early_setup(self, sig: Signal):
         from global_vars import gv
 
-        self.drive(sig.env, gv.io, "printk", msg="banner")
-        self.drive(sig.env, gv.boot_command_line, "parse", early=True)
-        sig.chain(self, "sched_init")
+        self.drive(sig.env, gv.io, "_printk", msg="banner")
+        self.drive(sig.env, gv.boot_command_line, "_parse", early=True)
+        sig.chain(self, "_sched_init")
 
-    def sched_init(self, sig: Signal):
+    def _sched_init(self, sig: Signal):
         from global_vars import gv
 
         assert gv.scheduler is None, "scheduler has already been initialized"
         scheduler = Scheduler()
-        self.drive(sig.env, scheduler, "setup")
+        self.drive(sig.env, scheduler, "_setup")
         gv.scheduler = scheduler
-        sig.chain(self, "enable_irq")
+        sig.chain(self, "_enable_irq")
 
-    def enable_irq(self, sig: Signal):
+    def _enable_irq(self, sig: Signal):
         from global_vars import gv
 
         LocalIrq().enable(sig.env.cv)
-        self.drive(sig.env, gv.io, "printk", msg="local irq enabled.")
-        sig.chain(self, "spawn_tasks")
+        self.drive(sig.env, gv.io, "_printk", msg="local irq enabled.")
+        sig.chain(self, "_spawn_tasks")
 
-    def spawn_tasks(self, sig: Signal):
+    def _spawn_tasks(self, sig: Signal):
         from global_vars import gv
 
         assert gv.scheduler is not None
@@ -45,16 +45,16 @@ class BootInitFlow(TaskFlow):
             "initial tasks have already been created"
         )
         gv.kernel_init_task = KernelInitTask()
-        self.drive(sig.env, gv.kernel_init_task, "setup")
-        self.drive(sig.env, gv.kernel_init_task, "wake_up_new_task")
+        self.drive(sig.env, gv.kernel_init_task, "_setup")
+        self.drive(sig.env, gv.kernel_init_task, "_wake_up_new_task")
 
         gv.kthreadd_task = KThreaddTask()
-        self.drive(sig.env, gv.kthreadd_task, "setup")
-        self.drive(sig.env, gv.kthreadd_task, "wake_up_new_task")
+        self.drive(sig.env, gv.kthreadd_task, "_setup")
+        self.drive(sig.env, gv.kthreadd_task, "_wake_up_new_task")
 
-        sig.chain(self, "yield_current")
+        sig.chain(self, "_yield_current")
 
-    def yield_current(self, sig: Signal):
+    def _yield_current(self, sig: Signal):
         from global_vars import gv
 
         assert gv.scheduler is not None
@@ -62,13 +62,13 @@ class BootInitFlow(TaskFlow):
         RemoteCpus().enable(sig.env.cv)
         # Like schedule_preempt_disabled(), task 0 retains disabled preemption.
         Preemption().disable(sig.env.cv)
-        self.drive(sig.env, gv.scheduler, "schedule")
-        sig.chain(self, "enter_idle")
+        self.drive(sig.env, gv.scheduler, "_schedule")
+        sig.chain(self, "_enter_idle")
 
-    def enter_idle(self, sig: Signal):
+    def _enter_idle(self, sig: Signal):
         for _ in range(3):
-            self.drive(sig.env, self, "do_idle")
+            self.drive(sig.env, self, "_do_idle")
 
-    def do_idle(self, sig: Signal):
+    def _do_idle(self, sig: Signal):
         assert sig.env.task is not None
-        self.drive(sig.env, sig.env.task._scheduler(), "schedule")
+        self.drive(sig.env, sig.env.task._scheduler(), "_schedule")

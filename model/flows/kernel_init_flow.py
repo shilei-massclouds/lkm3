@@ -9,17 +9,17 @@ from framework.sync_primitives import RemoteCpus
 
 @dataclass
 class KernelInitFlow(TaskFlow):
-    def pre_smp(self, sig: Signal):
-        sig.chain(self, "bringup_nonboot_cpus")
+    def _pre_smp(self, sig: Signal):
+        sig.chain(self, "_bringup_nonboot_cpus")
 
-    def bringup_nonboot_cpus(self, sig: Signal):
+    def _bringup_nonboot_cpus(self, sig: Signal):
         RemoteCpus().enable(sig.env.cv)
-        sig.chain(self, "final_init")
+        sig.chain(self, "_final_init")
 
-    def final_init(self, sig: Signal):
-        sig.chain(self, "boot_userapp")
+    def _final_init(self, sig: Signal):
+        sig.chain(self, "_boot_userapp")
 
-    def boot_userapp(self, sig: Signal):
+    def _boot_userapp(self, sig: Signal):
         from framework.engine import terminate
 
         terminate("\t[Terminate: Reach UserApp]")

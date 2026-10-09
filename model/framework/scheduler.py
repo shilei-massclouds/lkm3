@@ -43,17 +43,17 @@ class RunQueue(System):
         return bool(self._queue)
 
     @visibility(TRANSPARENT_CV)
-    def activate_task(self, sig: Signal):
+    def _activate_task(self, sig: Signal):
         with GuardBusyWaitPreemption(sig.env.cv, self):
             self.drive(
                 sig.env,
                 self,
-                "enqueue",
+                "_enqueue",
                 task=sig.args["task"],
                 expected_state=sig.args["expected_state"],
             )
 
-    def enqueue(self, sig: Signal):
+    def _enqueue(self, sig: Signal):
         """Publish a prepared, blocked, or yielding task to the queue."""
         from kernel.task import Task, TaskState
 
@@ -81,15 +81,15 @@ class RunQueue(System):
             )
             expected_state = task.state
         operation = {
-            TaskState.PREPARED: "wake_up_new_task",
-            TaskState.BLOCKED: "wake",
-            TaskState.RUNNING: "schedule",
+            TaskState.PREPARED: "_wake_up_new_task",
+            TaskState.BLOCKED: "_wake",
+            TaskState.RUNNING: "_schedule",
         }.get(expected_state, "queue")
         assert task.state is expected_state, f"task is not ready to {operation}"
         task.state = TaskState.READY
         self._queue.append(task)
 
-    def select(self, sig: Signal):
+    def _select(self, sig: Signal):
         """Select the next ready task, falling back to the idle task."""
         from kernel.task import Task, TaskState
 
@@ -111,7 +111,7 @@ class Scheduler(System):
     def __post_init__(self):
         self.runq.scheduler = self
 
-    def setup(self, sig: Signal):
+    def _setup(self, sig: Signal):
         from kernel.task import TaskState
 
         assert self.idle is None, "scheduler has already been initialized"
@@ -143,7 +143,7 @@ class Scheduler(System):
         return task
 
     @visibility(TRANSPARENT_CV)
-    def get_rq(self, sig: Signal):
+    def _get_rq(self, sig: Signal):
         from kernel.task import Task, TaskState
 
         self._require_current(sig.env)
@@ -153,26 +153,26 @@ class Scheduler(System):
         self.drive(
             sig.env,
             self.runq,
-            "activate_task",
+            "_activate_task",
             task=task,
             expected_state=TaskState.PREPARED,
         )
 
     @visibility(TRANSPARENT_CV)
-    def wake(self, sig: Signal):
+    def _wake(self, sig: Signal):
         from kernel.task import TaskState
 
         with GuardLocalIrq(sig.env.cv), GuardBusyWaitPreemption(sig.env.cv, self.runq):
             self.drive(
                 sig.env,
                 self.runq,
-                "enqueue",
+                "_enqueue",
                 task=sig.args["task"],
                 expected_state=TaskState.BLOCKED,
             )
 
     @visibility(CPUSCOPE_CV)
-    def switch(self, sig: Signal):
+    def _switch(self, sig: Signal):
         """Perform one protected scheduling transition."""
         from kernel.task import TaskState
 
@@ -196,12 +196,12 @@ class Scheduler(System):
             self.drive(
                 sig.env,
                 self.runq,
-                "enqueue",
+                "_enqueue",
                 task=task,
                 expected_state=TaskState.RUNNING,
             )
 
-        self.drive(sig.env, self.runq, "select", idle=self.idle)
+        self.drive(sig.env, self.runq, "_select", idle=self.idle)
         next_task = self.runq.selected
         assert next_task is not None
         self.current = next_task
@@ -219,7 +219,7 @@ class Scheduler(System):
             previous = task
 
         # This call returns only when another task has selected its caller again.
-        self.drive(sig.env, self, "finish_switch", previous=previous)
+        self.drive(sig.env, self, "_finish_switch", previous=previous)
 
     def _release_switch(self, task: Task) -> None:
         """Balance a task's recorded rq lock and local IRQ protection."""
@@ -229,7 +229,7 @@ class Scheduler(System):
         task._rq_lock = None
 
     @visibility(CPUSCOPE_CV)
-    def finish_switch(self, sig: Signal):
+    def _finish_switch(self, sig: Signal):
         """Complete a switch on the incoming task's stack."""
         from kernel.task import Task, TaskState
 
@@ -249,7 +249,7 @@ class Scheduler(System):
         self._release_switch(task)
 
     @visibility(TRANSPARENT_CV)
-    def schedule_tail(self, sig: Signal):
+    def _schedule_tail(self, sig: Signal):
         """Establish a new task's inherited protection before its first tail."""
         task = self._require_current(sig.env)
         assert task._rq_lock is None, "new task already has a pending switch"
@@ -259,7 +259,7 @@ class Scheduler(System):
             # the engine does not acquire a second runtime lock.
             task._rq_lock = BusyWaitPreemption(self.runq)
             task._rq_lock.lock(sig.env.cv)
-            self.drive(sig.env, self, "finish_switch", previous=sig.args["previous"])
+            self.drive(sig.env, self, "_finish_switch", previous=sig.args["previous"])
 
     def _drive_switch(self, sig: Signal, *, exiting: bool = False) -> None:
         task = self._require_current(sig.env)
@@ -269,7 +269,7 @@ class Scheduler(System):
                 self.drive(
                     sig.env,
                     self,
-                    "switch",
+                    "_switch",
                     block=sig.args.get("block", False),
                     exiting=exiting,
                 )
@@ -282,10 +282,10 @@ class Scheduler(System):
                 raise
 
     @visibility(TRANSPARENT_CV)
-    def schedule(self, sig: Signal):
+    def _schedule(self, sig: Signal):
         self._drive_switch(sig)
 
     @visibility(TRANSPARENT_CV)
-    def exit(self, sig: Signal):
+    def _exit(self, sig: Signal):
         """Select the task that receives control when this task returns."""
         self._drive_switch(sig, exiting=True)

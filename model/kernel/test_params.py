@@ -9,13 +9,13 @@ def test_parsing_early_params():
     env = TaskLocalEnv()
 
     gv.computer.drive(
-        env, gv.earlycon_driver_table, "register", drv=gv.earlycon_riscv_sbi
+        env, gv.earlycon_driver_table, "_register", drv=gv.earlycon_riscv_sbi
     )
     assert gv.earlycon_driver_table.table == [gv.earlycon_riscv_sbi]
 
-    gv.computer.drive(env, gv.kernel_param_table, "register", param=gv.earlycon_param)
+    gv.computer.drive(env, gv.kernel_param_table, "_register", param=gv.earlycon_param)
 
-    gv.computer.drive(env, gv.boot_command_line, "add", key="earlycon", val="sbi")
-    gv.computer.drive(env, gv.boot_command_line, "parse", early=True)
+    gv.computer.drive(env, gv.boot_command_line, "_add", key="earlycon", val="sbi")
+    gv.computer.drive(env, gv.boot_command_line, "_parse", early=True)
 
     assert gv.early_console_dev.console.ready

@@ -60,7 +60,7 @@ class Task(System):
         return self.scheduler
 
     @visibility(TASKPRIVATE_CV)
-    def setup(self, sig: Signal):
+    def _setup(self, sig: Signal):
         assert self.greenlet is None, "task has already been set up"
         scheduler = self._scheduler()
         scheduler._require_current(sig.env)
@@ -70,20 +70,20 @@ class Task(System):
         self.state = TaskState.PREPARED
 
     @visibility(TRANSPARENT_CV)
-    def wake_up_new_task(self, sig: Signal):
+    def _wake_up_new_task(self, sig: Signal):
         with GuardBusyWaitIrqSavePreemption(sig.env.cv, self):
             self.drive(
                 sig.env,
                 self._scheduler(),
-                "get_rq",
+                "_get_rq",
                 task=self,
             )
 
     def _run(self, previous: Task) -> Task:
-        self.drive(self.env, self._scheduler(), "schedule_tail", previous=previous)
+        self.drive(self.env, self._scheduler(), "_schedule_tail", previous=previous)
         # Run the task flow, then return control to the scheduler on exit.
         self.drive(self.env, self.flow, self.action)
-        self.drive(self.env, self._scheduler(), "exit")
+        self.drive(self.env, self._scheduler(), "_exit")
         return self
 
 
@@ -95,11 +95,11 @@ class BootInitTask(Task):
             name="boot_init",
             pid=0,
             flow=BootInitFlow(),
-            action="arch_boot",
+            action="_arch_boot",
             cv=EXCLUSIVE_CV,
         )
 
-    def start(self, sig: Signal):
+    def _start(self, sig: Signal):
         assert self.scheduler is None
         assert self.greenlet is None, "task has already been started"
 
@@ -118,7 +118,7 @@ class KernelInitTask(Task):
             name="kernel_init",
             pid=1,
             flow=KernelInitFlow(),
-            action="pre_smp",
+            action="_pre_smp",
             cv=ContentionVector(remote_irq=0, remote_tasks=0),
             scheduler=gv.scheduler,
         )
@@ -133,7 +133,7 @@ class KThreaddTask(Task):
             name="kthreadd",
             pid=2,
             flow=KthreaddFlow(),
-            action="wait_for_work",
+            action="_wait_for_work",
             cv=FREE_CV,
             scheduler=gv.scheduler,
         )
