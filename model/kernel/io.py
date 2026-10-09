@@ -44,24 +44,12 @@ class PrintkRingBuffer(System):
         head = self.head_id
         return f"PrintkRingBuffer({num} records, head={head})"
 
-    def _store(self, sig: Signal):
-        self.drive(sig.env, self, "_reserve", msg=sig.args["msg"])
-
-    def _reserve(self, sig: Signal):
+    def _reserve(self, sig: Signal) -> PrintkRecord:
         rid = self.head_id
-        self.records.append(PrintkRecord(rid))
+        record = PrintkRecord(rid)
+        self.records.append(record)
         self.head_id += 1
-        sig.chain(self, "_fill", rid=rid, msg=sig.args["msg"])
-
-    def _fill(self, sig: Signal):
-        rid = sig.args["rid"]
-        msg = sig.args["msg"]
-        self.drive(sig.env, self.records[rid], "_fill", msg=msg)
-        sig.chain(self, "_commit", rid=rid)
-
-    def _commit(self, sig: Signal):
-        rid = sig.args["rid"]
-        self.drive(sig.env, self.records[rid], "_commit")
+        return record
 
     def _emit_next_record(self, sig: Signal):
         con = sig.args["con"]
@@ -79,9 +67,16 @@ class Io(System):
     def printk(self, sig: Signal):
         from global_vars import gv
 
-        with GuardLocalIrq(sig.env.cv):
-            self.drive(sig.env, gv.prb, "_store", msg=sig.args["msg"])
+        self.drive(sig.env, self, "vprintk_store", msg=sig.args["msg"])
 
         # Console flushing is currently modeled as one global critical region.
         with GuardPreemption(sig.env.cv), GuardYieldTryLock(sig.env.cv, None):
             self.drive(sig.env, gv.console_list, "_flush_all")
+
+    def vprintk_store(self, sig: Signal):
+        from global_vars import gv
+
+        with GuardLocalIrq(sig.env.cv):
+            record = self.drive(sig.env, gv.prb, "_reserve")
+            self.drive(sig.env, record, "_fill", msg=sig.args["msg"])
+            self.drive(sig.env, record, "_commit")
