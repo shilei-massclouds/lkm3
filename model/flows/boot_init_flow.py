@@ -17,7 +17,7 @@ class BootInitFlow(TaskFlow):
     def _early_setup(self, sig: Signal):
         from global_vars import gv
 
-        self.drive(sig.env, gv.io, "_printk", msg="banner")
+        self.drive(sig.env, gv.io, "printk", msg="banner")
         self.drive(sig.env, gv.boot_command_line, "_parse", early=True)
         sig.chain(self, "_sched_init")
 
@@ -34,7 +34,7 @@ class BootInitFlow(TaskFlow):
         from global_vars import gv
 
         LocalIrq().enable(sig.env.cv)
-        self.drive(sig.env, gv.io, "_printk", msg="local irq enabled.")
+        self.drive(sig.env, gv.io, "printk", msg="local irq enabled.")
         sig.chain(self, "_spawn_tasks")
 
     def _spawn_tasks(self, sig: Signal):

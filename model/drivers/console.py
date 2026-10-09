@@ -39,7 +39,7 @@ class ConsoleList(System):
         con = sig.args["con"]
         self.items.append(con)
         msg = f"console[{con.driver}]: enabled."
-        self.drive(sig.env, gv.io, "_printk", msg=msg)  # trigger flush prb
+        self.drive(sig.env, gv.io, "printk", msg=msg)  # trigger flush prb
 
     def _flush_all(self, sig: Signal):
         self.drive_all(sig.env, self.items, "_emit_next_record")

@@ -8,7 +8,13 @@ from types import FunctionType
 from typing import TYPE_CHECKING, Any, cast
 from warnings import warn
 
-from framework.contention import DOMAINS, EXCLUSIVE_CV, FULLSCOPE_CV, ContentionVector
+from framework.contention import (
+    DOMAINS,
+    EXCLUSIVE_CV,
+    FULLSCOPE_CV,
+    TRANSPARENT_CV,
+    ContentionVector,
+)
 
 if TYPE_CHECKING:
     from kernel.task import Task
@@ -71,7 +77,7 @@ class System:
         return copy(EXCLUSIVE_CV)
 
     def resolve_visibility(self, action: str | None = None) -> ContentionVector:
-        """Copy the method declaration, nearest class declaration, or full-scope default."""
+        """Copy declarations, then choose a default from the action name."""
         if action is not None:
             declaration = getattr(getattr(self, action), _VISIBILITY_ATTR, None)
             if declaration is not None:
@@ -80,6 +86,8 @@ class System:
             declaration = cls.__dict__.get(_VISIBILITY_ATTR)
             if declaration is not None:
                 return copy(declaration)
+        if action is not None and not action.startswith("_"):
+            return copy(TRANSPARENT_CV)
         return copy(FULLSCOPE_CV)
 
     def drive(self, env: TaskLocalEnv, target: System, action: str, **kwargs) -> Any:

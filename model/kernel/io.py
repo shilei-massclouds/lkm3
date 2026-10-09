@@ -2,8 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from framework.contention import TRANSPARENT_CV
-from framework.engine import Signal, System, visibility
+from framework.engine import Signal, System
 from framework.sync_primitives import (
     GuardLocalIrq,
     GuardPreemption,
@@ -77,8 +76,7 @@ class Io(System):
     def __repr__(self):
         return "Io"
 
-    @visibility(TRANSPARENT_CV)
-    def _printk(self, sig: Signal):
+    def printk(self, sig: Signal):
         from global_vars import gv
 
         with GuardLocalIrq(sig.env.cv):

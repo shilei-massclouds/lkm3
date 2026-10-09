@@ -344,6 +344,28 @@ def test_visibility_defaults_to_full_scope_and_resolves_method_before_class():
     assert not target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "_receive")
 
 
+def test_action_name_selects_transparent_default_visibility():
+    class NamedReceiver(System):
+        def _closed(self, sig: Signal):
+            pass
+
+        def open(self, sig: Signal):
+            pass
+
+    target = NamedReceiver()
+    closed = target.resolve_visibility("_closed")
+    opened = target.resolve_visibility("open")
+
+    assert all(
+        getattr(closed, domain) == getattr(FULLSCOPE_CV, domain) for domain in DOMAINS
+    )
+    assert all(
+        getattr(opened, domain) == getattr(TRANSPARENT_CV, domain) for domain in DOMAINS
+    )
+    assert not target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "_closed")
+    assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "open")
+
+
 def test_transparent_visibility_masks_a_convenience_wrapper():
     @declare_visibility(TRANSPARENT_CV)
     class ConvenienceWrapper(System):
