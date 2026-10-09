@@ -4,9 +4,11 @@ import pytest
 
 from framework.contention import ContentionVector
 from framework.sync_primitives import (
+    AtomicReserve,
     BusyWaitIrqSave,
     BusyWaitIrqSavePreemption,
     BusyWaitLock,
+    GuardAtomicReserve,
     GuardBusyWaitIrqSave,
     GuardBusyWaitIrqSavePreemption,
     GuardBusyWaitLock,
@@ -142,6 +144,37 @@ def test_busy_wait_guard_restores_state_and_propagates_action_assertion():
         assert False, "action failed"
 
     assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
+
+
+def test_atomic_reserve_guard_protects_and_restores_all_domains():
+    cv = ContentionVector.ones()
+    target = object()
+    reserve = AtomicReserve(target)
+
+    reserve.acquire(cv)
+    assert all(getattr(cv, domain) == 0 for domain in DOMAINS)
+    reserve.release(cv)
+
+    with GuardAtomicReserve(cv, target):
+        assert all(getattr(cv, domain) == 0 for domain in DOMAINS)
+        assert all(cv.stacks[domain] == [target] for domain in DOMAINS)
+
+    assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
+    assert all(not cv.stacks[domain] for domain in DOMAINS)
+
+
+def test_atomic_reserve_guard_restores_state_on_exception():
+    cv = ContentionVector.ones()
+    target = object()
+
+    with (
+        pytest.raises(RuntimeError, match="action failed"),
+        GuardAtomicReserve(cv, target),
+    ):
+        raise RuntimeError("action failed")
+
+    assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
+    assert all(not cv.stacks[domain] for domain in DOMAINS)
 
 
 @pytest.mark.parametrize("lock_type", [BusyWaitIrqSave, BusyWaitIrqSavePreemption])

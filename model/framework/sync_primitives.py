@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Self
 
-from framework.contention import ContentionVector
+from framework.contention import DOMAINS, ContentionVector
 
 
 class SyncPrimitive:
@@ -111,6 +111,45 @@ class GuardBusyWaitLock(BusyWaitLock):
         traceback: TracebackType | None,
     ) -> None:
         self.unlock(self.cv)
+
+
+class AtomicReserve(SyncPrimitive):
+    """Atomically reserve one resource from a set of equivalent resources.
+
+    A successful reservation establishes exclusive access to the reserved
+    resource in every contention domain. Unlike a busy-wait lock, contenders
+    can reserve different resources and do not wait for this reservation to be
+    released before making progress.
+    """
+
+    def __init__(self, target: object | None):
+        self.target = target
+
+    def acquire(self, cv: ContentionVector):
+        cv.protect(self.target, *DOMAINS)
+
+    def release(self, cv: ContentionVector):
+        cv.unprotect(self.target, *DOMAINS)
+
+
+class GuardAtomicReserve(AtomicReserve):
+    """Establish and release an atomic reservation around a guarded block."""
+
+    def __init__(self, cv: ContentionVector, target: object | None):
+        super().__init__(target)
+        self.cv = cv
+
+    def __enter__(self) -> Self:
+        self.acquire(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.release(self.cv)
 
 
 class BusyWaitPreemption(SyncPrimitive):

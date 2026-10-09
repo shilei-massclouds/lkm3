@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from framework.contention import TASKPRIVATE_CV
 from framework.engine import Signal, System, visibility
 from framework.sync_primitives import (
+    GuardAtomicReserve,
     GuardLocalIrq,
     GuardPreemption,
     GuardYieldTryLock,
@@ -46,6 +47,10 @@ class PrintkRingBuffer(System):
         head = self.head_id
         return f"PrintkRingBuffer({num} records, head={head})"
 
+    def reserve(self, sig: Signal) -> PrintkRecord:
+        with GuardAtomicReserve(sig.env.cv, self):
+            return self.drive(sig.env, self, "_reserve")
+
     def _reserve(self, sig: Signal) -> PrintkRecord:
         rid = self.head_id
         record = PrintkRecord(rid)
@@ -79,6 +84,6 @@ class Io(System):
         from global_vars import gv
 
         with GuardLocalIrq(sig.env.cv):  # noqa: SIM117
-            with self.drive(sig.env, gv.prb, "_reserve") as record:
+            with self.drive(sig.env, gv.prb, "reserve") as record:
                 self.drive(sig.env, record, "_fill", msg=sig.args["msg"])
                 self.drive(sig.env, record, "_commit")
