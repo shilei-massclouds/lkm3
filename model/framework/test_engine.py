@@ -15,7 +15,7 @@ from framework.contention import (
     TRANSPARENT_CV,
     ContentionVector,
 )
-from framework.engine import Signal, System, TaskLocalEnv, requires_cv
+from framework.engine import Signal, System, TaskLocalEnv, protected_by, requires_cv
 from framework.engine import visibility as declare_visibility
 from framework.sync_primitives import (
     GuardBusyWaitIrqSave,
@@ -390,6 +390,51 @@ def test_transparent_visibility_masks_a_convenience_wrapper():
         getattr(target.resolve_visibility("_run"), domain) == 0 for domain in DOMAINS
     )
     assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "_run")
+
+
+def test_protected_by_requires_enclosing_lock_without_changing_visibility():
+    class ConsoleLock(System):
+        pass
+
+    @protected_by(ConsoleLock)
+    @declare_visibility(TRANSPARENT_CV)
+    class ProtectedHelper(Receiver):
+        pass
+
+    target = ProtectedHelper("Protected")
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+
+    assert all(
+        getattr(target.resolve_visibility("_receive"), domain)
+        == getattr(TRANSPARENT_CV, domain)
+        for domain in DOMAINS
+    )
+    assert target.resolve_protected_by("_receive") == (ConsoleLock,)
+    assert target.violated_domains(env, "_receive") == list(DOMAINS)
+
+    with GuardYieldTryLock(cv, ConsoleLock):
+        Computer().drive(env, target, "_receive", payload="accepted")
+
+    assert target.received == ["accepted"]
+
+
+def test_method_protected_by_overrides_class_declaration():
+    class OuterLock(System):
+        pass
+
+    class InnerLock(System):
+        pass
+
+    @protected_by(OuterLock)
+    class ProtectedReceiver(Receiver):
+        @protected_by(InnerLock)
+        def _receive(self, sig: Signal):
+            super()._receive(sig)
+
+    target = ProtectedReceiver("Protected")
+    assert target.resolve_protected_by("_receive") == (InnerLock,)
+    assert target.resolve_protected_by("_enqueue") == (OuterLock,)
 
 
 def test_drive_stops_before_action_when_invariant_fails():

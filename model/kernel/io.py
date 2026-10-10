@@ -4,12 +4,11 @@ from dataclasses import dataclass, field
 
 from drivers.console import Console
 from framework.contention import TASKPRIVATE_CV, TRANSPARENT_CV
-from framework.engine import Signal, System, visibility
+from framework.engine import Signal, System, protected_by, visibility
 from framework.sync_primitives import (
     GuardAtomicReserve,
     GuardLocalIrq,
     GuardPreemption,
-    GuardRcuReadSide,
     GuardYieldTryLock,
 )
 
@@ -60,6 +59,7 @@ class PrintkRingBuffer(System):
         self.head_id += 1
         return record
 
+    @protected_by(Console)
     @visibility(TRANSPARENT_CV)
     def _emit_next_record(self, sig: Signal):
         con = sig.args["con"]
@@ -79,11 +79,9 @@ class Io(System):
 
         self.drive(sig.env, self, "vprintk_store", msg=sig.args["msg"])
 
-        # Protect console instances while traversing the RCU-published list.
         with GuardPreemption(sig.env.cv):  # noqa: SIM117
             with GuardYieldTryLock(sig.env.cv, Console):
-                with GuardRcuReadSide(sig.env.cv, gv.console_list):
-                    self.drive(sig.env, gv.console_list, "_flush_all")
+                self.drive(sig.env, gv.console_list, "flush_all")
 
     def vprintk_store(self, sig: Signal):
         from global_vars import gv

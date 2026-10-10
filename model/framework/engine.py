@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 _REQUIRES_CV_ATTR = "__requires_cv__"
 _VISIBILITY_ATTR = "__visibility__"
+_PROTECTED_BY_ATTR = "__protected_by__"
+_MISSING = object()
 
 
 def env_enabled(name: str) -> bool:
@@ -91,6 +93,18 @@ class System:
             return copy(TRANSPARENT_CV)
         return copy(FULLSCOPE_CV)
 
+    def resolve_protected_by(self, action: str | None = None) -> tuple[object, ...]:
+        """Resolve targets whose protection is required before an action."""
+        if action is not None:
+            declaration = getattr(getattr(self, action), _PROTECTED_BY_ATTR, _MISSING)
+            if declaration is not _MISSING:
+                return (declaration,)
+        for cls in type(self).__mro__:
+            declaration = cls.__dict__.get(_PROTECTED_BY_ATTR, _MISSING)
+            if declaration is not _MISSING:
+                return (declaration,)
+        return ()
+
     def drive(self, env: TaskLocalEnv, target: System, action: str, **kwargs) -> Any:
         """Finish this invocation's signal queue before returning to its caller."""
         depth = env.depth
@@ -142,6 +156,7 @@ class System:
         visible = self.resolve_visibility(action)
         effective_cv = env.cv.min(visible)
         requirement = self.resolve_requires_cv(action)
+        protected_by = self.resolve_protected_by(action)
         return [
             domain
             for domain in DOMAINS
@@ -150,6 +165,7 @@ class System:
                 getattr(visible, domain) > getattr(requirement, domain)
                 and not env.cv.is_protected(domain, self)
             )
+            or any(not env.cv.is_protected(domain, target) for target in protected_by)
         ]
 
     def format_invariant(
@@ -268,6 +284,31 @@ def visibility[T: type[System] | Callable[..., Any]](
             )
         setattr(target, _VISIBILITY_ATTR, copy(template))
         return cast(T, target)
+
+    return decorate
+
+
+def protected_by[T: type[System] | Callable[..., Any]](
+    target: object,
+) -> Callable[[T], T]:
+    """Declare a target whose protection an action requires.
+
+    This dependency is separate from visibility: a transparent helper can
+    avoid imposing an independent target boundary while still requiring the
+    lock held by an enclosing action.
+    """
+
+    def decorate(declaration: T) -> T:
+        if isinstance(declaration, type):
+            assert issubclass(declaration, System), (
+                "protected_by can only decorate System subclasses"
+            )
+        else:
+            assert isinstance(declaration, FunctionType), (
+                "protected_by expects a System subclass or instance method"
+            )
+        setattr(declaration, _PROTECTED_BY_ATTR, target)
+        return cast(T, declaration)
 
     return decorate
 

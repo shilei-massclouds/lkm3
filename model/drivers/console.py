@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 
 from framework.engine import Signal, System
+from framework.sync_primitives import GuardRcuReadSide
 
 
 @dataclass
@@ -40,6 +41,11 @@ class ConsoleList(System):
         self.items.append(con)
         msg = f"console[{con.driver}]: enabled."
         self.drive(sig.env, gv.io, "printk", msg=msg)  # trigger flush prb
+
+    # Protect console instances while traversing the RCU-published list.
+    def flush_all(self, sig: Signal):
+        with GuardRcuReadSide(sig.env.cv, self):
+            self.drive(sig.env, self, "_flush_all")
 
     def _flush_all(self, sig: Signal):
         self.drive_all(sig.env, self.items, "_emit_next_record")
