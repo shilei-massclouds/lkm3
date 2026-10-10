@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from framework.contention import (
     DOMAINS,
-    EXCLUSIVE_CV,
     FULLSCOPE_CV,
     TASKPRIVATE_CV,
     TRANSPARENT_CV,
@@ -140,23 +139,25 @@ class System:
     ) -> list[str]:
         """List visible domains with unsafe counts or mismatched protection."""
         return [
-            domain for domain in DOMAINS if self._violates_domain(env, domain, action)
+            domain
+            for domain in DOMAINS
+            if not self._domain_is_safe(env, domain, action)
         ]
 
-    def _violates_domain(
+    def _domain_is_safe(
         self,
         env: TaskLocalEnv,
         domain: str,
         action: str | None,
     ) -> bool:
-        """Return whether one contention domain violates an action invariant."""
+        """Return whether one contention domain satisfies an action invariant."""
         visible = self.resolve_visibility(action)
         if getattr(visible, domain) == 0:
-            return False
-        effective_cv = env.cv.min(visible)
-        if getattr(effective_cv, domain) > getattr(EXCLUSIVE_CV, domain):
             return True
-        return not self._protection_satisfied(env, domain, action)
+        effective_cv = env.cv.min(visible)
+        if getattr(effective_cv, domain) <= 0:
+            return self._protection_satisfied(env, domain, action)
+        return False
 
     def _protection_satisfied(
         self,
