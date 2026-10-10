@@ -154,8 +154,7 @@ class System:
         visible = self.resolve_visibility(action)
         if getattr(visible, domain) == 0:
             return True
-        effective_cv = env.cv.min(visible)
-        if getattr(effective_cv, domain) <= 0:
+        if getattr(env.cv, domain) <= 0:
             return self._protection_satisfied(env, domain, action)
         return False
 
