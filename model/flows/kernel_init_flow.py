@@ -13,7 +13,10 @@ class KernelInitFlow(TaskFlow):
         sig.chain(self, "_bringup_nonboot_cpus")
 
     def _bringup_nonboot_cpus(self, sig: Signal):
+        from global_vars import gv
+
         RemoteCpus().enable(sig.env.cv)
+        self.drive(sig.env, gv.io, "printk", msg="nonboot cpus enabled.")
         sig.chain(self, "_final_init")
 
     def _final_init(self, sig: Signal):
