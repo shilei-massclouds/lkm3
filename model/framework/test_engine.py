@@ -419,6 +419,31 @@ def test_protected_by_requires_enclosing_lock_without_changing_visibility():
     assert target.received == ["accepted"]
 
 
+def test_protected_by_can_supply_a_nontransparent_target_boundary():
+    class ConsoleLock(System):
+        pass
+
+    @protected_by(ConsoleLock)
+    class ProtectedHelper(Receiver):
+        pass
+
+    target = ProtectedHelper("Protected")
+    cv = ContentionVector.ones()
+    env = TaskLocalEnv(cv)
+
+    assert all(
+        getattr(target.resolve_visibility("_receive"), domain)
+        == getattr(FULLSCOPE_CV, domain)
+        for domain in DOMAINS
+    )
+    assert target.violated_domains(env, "_receive") == list(DOMAINS)
+
+    with GuardYieldTryLock(cv, ConsoleLock):
+        Computer().drive(env, target, "_receive", payload="accepted")
+
+    assert target.received == ["accepted"]
+
+
 def test_method_protected_by_overrides_class_declaration():
     class OuterLock(System):
         pass

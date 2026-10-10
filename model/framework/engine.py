@@ -160,10 +160,15 @@ class System:
         return [
             domain
             for domain in DOMAINS
-            if getattr(effective_cv, domain) > getattr(requirement, domain)
+            if (getattr(effective_cv, domain) > getattr(requirement, domain))
             or (
                 getattr(visible, domain) > getattr(requirement, domain)
-                and not env.cv.is_protected(domain, self)
+                and not (
+                    env.cv.is_protected(domain, self)
+                    or any(
+                        env.cv.is_protected(domain, target) for target in protected_by
+                    )
+                )
             )
             or any(not env.cv.is_protected(domain, target) for target in protected_by)
         ]
@@ -293,9 +298,8 @@ def protected_by[T: type[System] | Callable[..., Any]](
 ) -> Callable[[T], T]:
     """Declare a target whose protection an action requires.
 
-    This dependency is separate from visibility: a transparent helper can
-    avoid imposing an independent target boundary while still requiring the
-    lock held by an enclosing action.
+    The target is required in every visible domain and can also satisfy the
+    action's own target boundary when the action is not transparent.
     """
 
     def decorate(declaration: T) -> T:

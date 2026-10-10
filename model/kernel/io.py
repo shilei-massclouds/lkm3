@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 from drivers.console import Console
-from framework.contention import TASKPRIVATE_CV, TRANSPARENT_CV
+from framework.contention import TASKPRIVATE_CV
 from framework.engine import Signal, System, protected_by, visibility
 from framework.sync_primitives import (
     GuardAtomicReserve,
@@ -60,7 +60,6 @@ class PrintkRingBuffer(System):
         return record
 
     @protected_by(Console)
-    @visibility(TRANSPARENT_CV)
     def _emit_next_record(self, sig: Signal):
         con = sig.args["con"]
         seq = con.seq
