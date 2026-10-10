@@ -392,7 +392,7 @@ def test_transparent_visibility_masks_a_convenience_wrapper():
     assert target.check_invariant(TaskLocalEnv(ContentionVector.ones()), "_run")
 
 
-def test_protected_by_requires_enclosing_lock_without_changing_visibility():
+def test_protected_by_does_not_require_hidden_domain_protection():
     class ConsoleLock(System):
         pass
 
@@ -411,10 +411,9 @@ def test_protected_by_requires_enclosing_lock_without_changing_visibility():
         for domain in DOMAINS
     )
     assert target.resolve_protected_by("_receive") == (ConsoleLock,)
-    assert target.violated_domains(env, "_receive") == list(DOMAINS)
+    assert target.violated_domains(env, "_receive") == []
 
-    with GuardYieldTryLock(cv, ConsoleLock):
-        Computer().drive(env, target, "_receive", payload="accepted")
+    Computer().drive(env, target, "_receive", payload="accepted")
 
     assert target.received == ["accepted"]
 
@@ -460,6 +459,21 @@ def test_method_protected_by_overrides_class_declaration():
     target = ProtectedReceiver("Protected")
     assert target.resolve_protected_by("_receive") == (InnerLock,)
     assert target.resolve_protected_by("_enqueue") == (OuterLock,)
+
+
+def test_protected_by_class_declaration_is_inherited_by_derived_classes():
+    class OuterLock(System):
+        pass
+
+    @protected_by(OuterLock)
+    class BaseReceiver(Receiver):
+        pass
+
+    class DerivedReceiver(BaseReceiver):
+        pass
+
+    assert BaseReceiver("Base").resolve_protected_by("_enqueue") == (OuterLock,)
+    assert DerivedReceiver("Derived").resolve_protected_by("_enqueue") == (OuterLock,)
 
 
 def test_drive_stops_before_action_when_invariant_fails():

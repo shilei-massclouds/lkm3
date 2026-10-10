@@ -153,25 +153,39 @@ class System:
         self, env: TaskLocalEnv, action: str | None = None
     ) -> list[str]:
         """List visible domains with unsafe counts or mismatched protection."""
+        return [
+            domain for domain in DOMAINS if self._violates_domain(env, domain, action)
+        ]
+
+    def _violates_domain(
+        self,
+        env: TaskLocalEnv,
+        domain: str,
+        action: str | None,
+    ) -> bool:
+        """Return whether one contention domain violates an action invariant."""
         visible = self.resolve_visibility(action)
+        if getattr(visible, domain) == 0:
+            return False
         effective_cv = env.cv.min(visible)
         requirement = self.resolve_requires_cv(action)
+        if getattr(effective_cv, domain) > getattr(requirement, domain):
+            return True
+        return not self._protection_satisfied(env, domain, action, requirement)
+
+    def _protection_satisfied(
+        self,
+        env: TaskLocalEnv,
+        domain: str,
+        action: str | None,
+        requirement: ContentionVector,
+    ) -> bool:
+        """Return whether the action's protection requirement is satisfied."""
         protected_by = self.resolve_protected_by(action)
-        return [
-            domain
-            for domain in DOMAINS
-            if (getattr(effective_cv, domain) > getattr(requirement, domain))
-            or (
-                getattr(visible, domain) > getattr(requirement, domain)
-                and not (
-                    env.cv.is_protected(domain, self)
-                    or any(
-                        env.cv.is_protected(domain, target) for target in protected_by
-                    )
-                )
-            )
-            or any(not env.cv.is_protected(domain, target) for target in protected_by)
-        ]
+        protection_required = getattr(requirement, domain) < 1 or bool(protected_by)
+        return not protection_required or env.cv.is_protected(
+            domain, self, protected_by
+        )
 
     def format_invariant(
         self,

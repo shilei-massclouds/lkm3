@@ -73,16 +73,29 @@ class ContentionVector:
                 self.stacks[domain].pop()
             setattr(self, domain, getattr(self, domain) + 1)
 
-    def is_protected(self, domain: str, target: object) -> bool:
+    def is_protected(
+        self,
+        domain: str,
+        target: object,
+        protected_by: tuple[object, ...] = (),
+    ) -> bool:
         """Check global, class-level, or exact-object protection.
 
         A class placed on a protection stack protects instances of that class
-        and its subclasses. Other stack entries retain identity semantics so
-        unrelated objects with equal values are never treated as protected.
+        and its subclasses. An explicitly declared class-level dependency also
+        matches its class stack entry. Other stack entries retain identity
+        semantics so unrelated objects with equal values are never treated as
+        protected.
         """
         return any(
             protected is None
-            or (isinstance(protected, type) and isinstance(target, protected))
+            or (
+                isinstance(protected, type)
+                and (
+                    isinstance(target, protected)
+                    or any(protected is declared for declared in protected_by)
+                )
+            )
             or protected is target
             for protected in self.stacks[domain]
         )

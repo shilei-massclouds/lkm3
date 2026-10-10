@@ -135,3 +135,15 @@ def test_target_protection_must_be_released_in_stack_order():
     assert cv.remote_irq == 0 and cv.remote_tasks == -1
     assert cv.stacks["remote_irq"] == [outer]
     assert cv.stacks["remote_tasks"] == [outer, inner]
+
+
+def test_class_protection_accepts_an_explicit_protected_by_marker():
+    class ProtectedClass:
+        pass
+
+    target = object()
+    cv = ContentionVector.ones()
+    cv.protect(ProtectedClass, *DOMAINS)
+
+    assert all(cv.is_protected(domain, target, (ProtectedClass,)) for domain in DOMAINS)
+    assert all(not cv.is_protected(domain, target) for domain in DOMAINS)
