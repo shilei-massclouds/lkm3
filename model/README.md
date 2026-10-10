@@ -79,9 +79,11 @@ The four components of a `ContentionVector` are interpreted from the current
 task's point of view while it accesses a target system. The same vector shape
 has three distinct roles:
 
-- `env.cv` describes whether each other domain can compete with the current
-  access to the target. It is passed through the current task's nested call
-  stack, and synchronization primitives adjust the relevant component.
+- `env.cv` describes the current task's synchronization state in relation to
+  each other domain. It is passed through the current task's nested call stack,
+  and synchronization primitives adjust the relevant component to express the
+  concurrency state established by that primitive. A lower value does not by
+  itself imply that an operation blocks or excludes its competitors.
 - The target's `visibility` describes whether the target can be seen by each
   other domain. An invisible domain cannot compete with that target. Visibility
   is per-domain, so a target can be visible to some domains and invisible to
@@ -127,6 +129,11 @@ Locks and their guards take an explicit protected target, for example
 their target in each domain they protect. An explicit `None` target represents
 global protection; console flushing currently uses this abstraction for its
 shared critical region.
+
+`VersionedRead` records its target in all four protection stacks while a
+versioned read is active. The model captures the resulting concurrent state;
+the concrete publication and validation protocol remains outside this
+abstraction.
 
 Copying a vector copies the four lists independently and retains the protected
 object references. Numerical comparison and `min()` do not combine protection

@@ -15,6 +15,7 @@ from framework.sync_primitives import (
     GuardBusyWaitPreemption,
     GuardLocalIrq,
     GuardPreemption,
+    GuardVersionedRead,
     GuardYieldLock,
     GuardYieldTryLock,
     LocalIrq,
@@ -172,6 +173,22 @@ def test_atomic_reserve_guard_restores_state_on_exception():
         GuardAtomicReserve(cv, target),
     ):
         raise RuntimeError("action failed")
+
+    assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
+    assert all(not cv.stacks[domain] for domain in DOMAINS)
+
+
+def test_versioned_read_guard_adjusts_and_restores_all_domains():
+    class Record:
+        seq = 4
+        state = "committed"
+
+    cv = ContentionVector.ones()
+    record = Record()
+
+    with GuardVersionedRead(cv, record):
+        assert all(getattr(cv, domain) == 0 for domain in DOMAINS)
+        assert all(cv.stacks[domain] == [record] for domain in DOMAINS)
 
     assert all(getattr(cv, domain) == 1 for domain in DOMAINS)
     assert all(not cv.stacks[domain] for domain in DOMAINS)

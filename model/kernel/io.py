@@ -9,23 +9,41 @@ from framework.sync_primitives import (
     GuardAtomicReserve,
     GuardLocalIrq,
     GuardPreemption,
+    GuardVersionedRead,
     GuardYieldTryLock,
 )
 
 
-@visibility(TASKPRIVATE_CV)
 @dataclass
 class PrintkRecord(System):
     seq: int
     data: str = ""
     state: str = "reserved"
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
+    @visibility(TASKPRIVATE_CV)
     def _fill(self, sig: Signal):
         self.data = sig.args["msg"]
 
+    @visibility(TASKPRIVATE_CV)
     def _commit(self, sig: Signal):
         assert self.state == "reserved"
         self.state = "committed"
+
+    def flush(self, sig: Signal):
+        with GuardVersionedRead(sig.env.cv, self):
+            self.drive(
+                sig.env,
+                self,
+                "_flush",
+                con=sig.args["con"],
+                head_id=sig.args["head_id"],
+            )
 
     def _flush(self, sig: Signal):
         reset_id = sig.args["head_id"]
@@ -64,7 +82,7 @@ class PrintkRingBuffer(System):
         con = sig.args["con"]
         seq = con.seq
         self.drive_all(
-            sig.env, self.records[seq:], "_flush", con=con, head_id=self.head_id
+            sig.env, self.records[seq:], "flush", con=con, head_id=self.head_id
         )
 
 

@@ -152,6 +152,37 @@ class GuardAtomicReserve(AtomicReserve):
         self.release(self.cv)
 
 
+class VersionedRead(SyncPrimitive):
+    def __init__(self, target: object):
+        self.target = target
+
+    def acquire(self, cv: ContentionVector):
+        cv.protect(self.target, *DOMAINS)
+
+    def release(self, cv: ContentionVector):
+        cv.unprotect(self.target, *DOMAINS)
+
+
+class GuardVersionedRead(VersionedRead):
+    """Hold versioned-read protection for a nested action."""
+
+    def __init__(self, cv: ContentionVector, target: object):
+        super().__init__(target)
+        self.cv = cv
+
+    def __enter__(self) -> Self:
+        self.acquire(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.release(self.cv)
+
+
 class RcuReadSide(SyncPrimitive):
     """Model the protection held while reading an RCU-published target.
 
