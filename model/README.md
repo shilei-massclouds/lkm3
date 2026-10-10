@@ -55,26 +55,17 @@ to nested drivers and use `sig.env.cv` for synchronization primitives.
 Each `Task` owns a distinct `TaskFlow` instance. Tasks may use the same flow
 class, but sharing one flow instance is rejected.
 
-Contention declarations use `@requires_cv(...)` and `@visibility(...)` on
-classes or methods. Method declarations take precedence over the nearest class
-declaration. `requires_cv` falls back to an exclusive vector (all zero), while
-`visibility` falls back to a full-scope vector (all one). Neither declaration
-is an instance field on `System`. `EXCLUSIVE_CV` and `FREE_CV` name the
-environment and requirement defaults; `TRANSPARENT_CV` and `FULLSCOPE_CV` name
+Contention declarations use `@visibility(...)` on classes or methods. Method
+declarations take precedence over the nearest class declaration. `visibility`
+falls back to a full-scope vector (all one), while every target uses the fixed
+exclusive safety boundary `EXCLUSIVE_CV` (all zero). `EXCLUSIVE_CV` and
+`FREE_CV` name environment presets; `TRANSPARENT_CV` and `FULLSCOPE_CV` name
 the corresponding visibility values, even though the component values overlap.
 `TASKPRIVATE_CV` is also all zero, but denotes a target private to its owning
 task rather than a transparent convenience wrapper. Other visibility presets
 select a context scope: `CPUSCOPE_CV` is `(1, 1, 0, 0)` for per-CPU
 visibility, `TASKSCOPE_CV` is `(0, 1, 0, 1)` for task-context visibility, and
 `IRQSCOPE_CV` is `(1, 0, 1, 0)` for interrupt-context visibility.
-
-`requires_cv` is deprecated and retained only as a migration compatibility
-interface. Do not add new uses. Each call to `requires_cv(...)` emits a
-`DeprecationWarning` at the declaration site; existing declarations still
-keep their current contention-check behavior. Use `SyncPrimitive` to adjust
-environment contention and `visibility` to express target scope instead.
-Existing declarations will be migrated individually, without mechanically
-inverting their requirement vectors into visibility.
 
 ## Contention-vector model
 
@@ -98,17 +89,15 @@ has three distinct roles:
   actions carry the actual safety requirements; `TASKPRIVATE_CV` (all zero)
   marks a target private to its owning task; `FULLSCOPE_CV` (all one) marks a
   target visible to every domain.
-- The target's legacy `requires_cv` is its safe contention boundary during
-  migration. It defaults to all zero, meaning exclusive access, and a
-  declaration can permit contention in selected domains.
+- The target's safety boundary is the fixed `EXCLUSIVE_CV`, meaning exclusive
+  access in every domain.
 
-During migration, dispatch first combines the environment and the target's
-resolved visibility with a minimum, then checks the result against the target's
-resolved boundary:
+Dispatch first combines the environment and the target's visibility with a
+minimum, then checks the result against the fixed target boundary:
 
 ```text
 effective_cv[d] = min(env.cv[d], target.visibility[d])
-assert effective_cv <= target.requires_cv
+assert effective_cv <= EXCLUSIVE_CV
 ```
 
 The check is component-wise across local IRQ, local tasks, remote IRQ and
@@ -122,13 +111,14 @@ increments the component. `None` denotes global protection. Initially absent
 competitors are also represented by `None`; enabling IRQs, local multitasking
 or remote CPUs removes the corresponding global protection.
 
-For every visible domain that requires protection, dispatch checks both the
-count and the stack. The count must satisfy the safety boundary, and the stack
-must contain either `None` or the exact target instance, compared by identity.
-Matching references can appear anywhere in the stack. Invisible domains and
-domains permitted by a legacy requirement do not need a matching reference.
-Transparent routing actions therefore remain callable before their nested
-actions acquire the appropriate target protection.
+For every visible domain, dispatch checks both the count and the stack. The
+count must satisfy the fixed exclusive boundary, and the stack must contain
+either `None`, a matching class, or the exact target instance, compared by
+identity. An explicit `protected_by(Class)` declaration extends the class
+match for that action. Matching references can appear anywhere in the stack.
+Invisible domains do not need a matching reference. Transparent routing actions
+therefore remain callable before their nested actions acquire the appropriate
+target protection.
 
 Locks and their guards take an explicit protected target, for example
 `GuardBusyWaitIrqSavePreemption(cv, task)` and
@@ -145,14 +135,6 @@ IRQ save/restore uses `IrqFlags`, which saves both the level and the IRQ stack
 so that nested guards restore the surrounding protection without changing
 other domains. These stacks describe the current task's derivation path;
 the engine does not simulate concurrent lock owners.
-
-After all legacy declarations have been migrated, `requires_cv` will be removed
-and every target will use the fixed exclusive safety boundary `EXCLUSIVE_CV`:
-
-```text
-effective_cv[d] = min(env.cv[d], target.visibility[d])
-assert effective_cv <= EXCLUSIVE_CV
-```
 
 The boot task starts with contention `(0, 0, 0, 0)` and schedules explicitly
 with preemption disabled. After resuming it performs three idle iterations,

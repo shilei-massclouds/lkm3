@@ -139,7 +139,7 @@ class ContentionVector:
         )
 
 
-# Environment and requires_cv defaults.
+# Environment and fixed target-boundary presets.
 FREE_CV = ContentionVector.ones()
 EXCLUSIVE_CV = ContentionVector.zeros()
 

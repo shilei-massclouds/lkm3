@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from os import getenv
 from types import FunctionType
 from typing import TYPE_CHECKING, Any, cast
-from warnings import warn
 
 from framework.contention import (
     DOMAINS,
@@ -20,7 +19,6 @@ from framework.contention import (
 if TYPE_CHECKING:
     from kernel.task import Task
 
-_REQUIRES_CV_ATTR = "__requires_cv__"
 _VISIBILITY_ATTR = "__visibility__"
 _PROTECTED_BY_ATTR = "__protected_by__"
 _MISSING = object()
@@ -67,18 +65,6 @@ class Signal:
 
 @dataclass
 class System:
-    def resolve_requires_cv(self, action: str | None = None) -> ContentionVector:
-        """Copy the method requirement, nearest class declaration, or default."""
-        if action is not None:
-            requirement = getattr(getattr(self, action), _REQUIRES_CV_ATTR, None)
-            if requirement is not None:
-                return copy(requirement)
-        for cls in type(self).__mro__:
-            requirement = cls.__dict__.get(_REQUIRES_CV_ATTR)
-            if requirement is not None:
-                return copy(requirement)
-        return copy(EXCLUSIVE_CV)
-
     def resolve_visibility(self, action: str | None = None) -> ContentionVector:
         """Copy declarations, then choose a default from the action name."""
         if action is not None:
@@ -168,24 +154,19 @@ class System:
         if getattr(visible, domain) == 0:
             return False
         effective_cv = env.cv.min(visible)
-        requirement = self.resolve_requires_cv(action)
-        if getattr(effective_cv, domain) > getattr(requirement, domain):
+        if getattr(effective_cv, domain) > getattr(EXCLUSIVE_CV, domain):
             return True
-        return not self._protection_satisfied(env, domain, action, requirement)
+        return not self._protection_satisfied(env, domain, action)
 
     def _protection_satisfied(
         self,
         env: TaskLocalEnv,
         domain: str,
         action: str | None,
-        requirement: ContentionVector,
     ) -> bool:
         """Return whether the action's protection requirement is satisfied."""
         protected_by = self.resolve_protected_by(action)
-        protection_required = getattr(requirement, domain) < 1 or bool(protected_by)
-        return not protection_required or env.cv.is_protected(
-            domain, self, protected_by
-        )
+        return env.cv.is_protected(domain, self, protected_by)
 
     def format_invariant(
         self,
@@ -230,42 +211,6 @@ class System:
             else ""
         )
         return f"{indent}{header}\n{violations}" + "\n".join(rows)
-
-
-def requires_cv[T: type[System] | Callable[..., Any]](
-    requirement: ContentionVector,
-) -> Callable[[T], T]:
-    """Declare a copied requirement on a System subclass or instance method.
-
-    Return the original object without wrapping constructors or method calls.
-    Method declarations take precedence over class declarations during dispatch.
-    Static methods, class methods, and properties are not supported.
-
-    Deprecated migration interface; use SyncPrimitive and visibility instead.
-    """
-    warn(
-        "requires_cv is deprecated; use SyncPrimitive and visibility instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    assert isinstance(requirement, ContentionVector), (
-        "requires_cv expects a ContentionVector"
-    )
-    template = copy(requirement)
-
-    def decorate(target: T) -> T:
-        if isinstance(target, type):
-            assert issubclass(target, System), (
-                "requires_cv can only decorate System subclasses"
-            )
-        else:
-            assert isinstance(target, FunctionType), (
-                "requires_cv expects a System subclass or instance method"
-            )
-        setattr(target, _REQUIRES_CV_ATTR, copy(template))
-        return cast(T, target)
-
-    return decorate
 
 
 def visibility[T: type[System] | Callable[..., Any]](

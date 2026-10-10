@@ -2,9 +2,8 @@
 
 from collections import deque
 from dataclasses import dataclass, field, fields
-from inspect import currentframe, signature
+from inspect import signature
 from typing import Any
-from warnings import catch_warnings
 
 import pytest
 
@@ -15,7 +14,7 @@ from framework.contention import (
     TRANSPARENT_CV,
     ContentionVector,
 )
-from framework.engine import Signal, System, TaskLocalEnv, protected_by, requires_cv
+from framework.engine import Signal, System, TaskLocalEnv, protected_by
 from framework.engine import visibility as declare_visibility
 from framework.sync_primitives import (
     GuardBusyWaitIrqSave,
@@ -645,47 +644,6 @@ def test_targeted_yield_lock_keeps_local_protection_target_specific():
             Computer().drive(env, target, "_receive", payload="accepted")
 
     assert target.received == ["accepted"]
-
-
-@pytest.mark.parametrize("declaration", ["class", "method"])
-def test_requires_cv_warns_at_creation_and_preserves_dispatch(declaration):
-    class LegacyReceiver(Receiver):
-        def _receive(self, sig: Signal):
-            super()._receive(sig)
-
-    frame = currentframe()
-    assert frame is not None
-    with catch_warnings(record=True, action="always") as caught:
-        declaration_line = frame.f_lineno + 1
-        decorate = requires_cv(ContentionVector(remote_irq=0))
-
-        if declaration == "class":
-            assert decorate(LegacyReceiver) is LegacyReceiver
-        else:
-            method = LegacyReceiver._receive
-            assert decorate(method) is method
-
-        target = LegacyReceiver("Legacy")
-        cv = ContentionVector(remote_irq=0)
-        Computer().drive(TaskLocalEnv(cv), target, "_receive", payload="allowed")
-        with pytest.raises(AssertionError, match="violated domains: remote_irq"):
-            Computer().drive(
-                TaskLocalEnv(ContentionVector.ones()),
-                target,
-                "_receive",
-                payload="blocked",
-            )
-
-    assert len(caught) == 1
-    warning = caught[0]
-    assert warning.category is DeprecationWarning
-    assert str(warning.message) == (
-        "requires_cv is deprecated; use SyncPrimitive and visibility instead."
-    )
-    assert warning.filename == __file__
-    assert warning.lineno == declaration_line
-    assert target.received == ["allowed"]
-    assert target.environments == [cv]
 
 
 def test_nested_drives_finish_before_their_callers_pending_signals():
