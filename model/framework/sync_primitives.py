@@ -152,6 +152,44 @@ class GuardAtomicReserve(AtomicReserve):
         self.release(self.cv)
 
 
+class RcuReadSide(SyncPrimitive):
+    """Model the protection held while reading an RCU-published target.
+
+    This primitive records only the current read-side nesting in the
+    contention vector. It does not wait for writers, acquire a lock, or model
+    write-side synchronization.
+    """
+
+    def __init__(self, target: object | None):
+        self.target = target
+
+    def acquire(self, cv: ContentionVector):
+        cv.protect(self.target, *DOMAINS)
+
+    def release(self, cv: ContentionVector):
+        cv.unprotect(self.target, *DOMAINS)
+
+
+class GuardRcuReadSide(RcuReadSide):
+    """Hold an RCU read-side protection for a guarded block."""
+
+    def __init__(self, cv: ContentionVector, target: object | None):
+        super().__init__(target)
+        self.cv = cv
+
+    def __enter__(self) -> Self:
+        self.acquire(self.cv)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.release(self.cv)
+
+
 class BusyWaitPreemption(SyncPrimitive):
     """Combine a busy-wait lock with local preemption protection.
 

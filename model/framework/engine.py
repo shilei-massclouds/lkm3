@@ -148,7 +148,7 @@ class System:
             if getattr(effective_cv, domain) > getattr(requirement, domain)
             or (
                 getattr(visible, domain) > getattr(requirement, domain)
-                and not env.cv.protects(domain, self)
+                and not env.cv.is_protected(domain, self)
             )
         ]
 
